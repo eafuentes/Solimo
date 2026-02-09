@@ -6,6 +6,9 @@ const KEYS = {
   SOUND_ENABLED: 'solimo_soundEnabled',
   COMPLETED_DATE: 'solimo_completedDate',
   ACTIVITY_LEVELS: 'solimo_activityLevels',
+  STREAK_COUNT: 'solimo_streakCount',
+  STREAK_LAST_DATE: 'solimo_streakLastDate',
+  ONBOARDING_DONE: 'solimo_onboardingDone',
 };
 
 /**
@@ -62,13 +65,13 @@ export async function isCompletedToday(): Promise<boolean> {
   if (!completedDate) return false;
 
   const today = getLocalDateString();
-  
+
   // If the stored date is NOT today, clear it and return false
   if (completedDate !== today) {
     await clearTodaysCompletion();
     return false;
   }
-  
+
   return true;
 }
 
@@ -99,7 +102,10 @@ export async function getDifficultyLevel(activityId: string): Promise<Difficulty
 /**
  * Set difficulty level for an activity
  */
-export async function setDifficultyLevel(activityId: string, difficulty: Difficulty): Promise<void> {
+export async function setDifficultyLevel(
+  activityId: string,
+  difficulty: Difficulty
+): Promise<void> {
   const data = await AsyncStorage.getItem(KEYS.ACTIVITY_LEVELS);
   const levels = data ? JSON.parse(data) : {};
   levels[activityId] = difficulty;
@@ -112,4 +118,78 @@ export async function setDifficultyLevel(activityId: string, difficulty: Difficu
 export async function resetProgress(): Promise<void> {
   await AsyncStorage.removeItem(KEYS.COMPLETED_DATE);
   await AsyncStorage.removeItem(KEYS.ACTIVITY_LEVELS);
+  await AsyncStorage.removeItem(KEYS.STREAK_COUNT);
+  await AsyncStorage.removeItem(KEYS.STREAK_LAST_DATE);
+}
+
+/**
+ * Get the current daily streak count
+ */
+export async function getStreak(): Promise<number> {
+  const [countStr, lastDate] = await Promise.all([
+    AsyncStorage.getItem(KEYS.STREAK_COUNT),
+    AsyncStorage.getItem(KEYS.STREAK_LAST_DATE),
+  ]);
+  if (!countStr || !lastDate) return 0;
+
+  const today = getLocalDateString();
+  const yesterday = getLocalDateString(
+    new Date(Date.now() - 24 * 60 * 60 * 1000)
+  );
+
+  // If last streak date is today, streak is still active
+  if (lastDate === today) return parseInt(countStr, 10);
+  // If last streak date was yesterday, streak is still valid but not yet bumped
+  if (lastDate === yesterday) return parseInt(countStr, 10);
+  // Streak broken — more than 1 day gap
+  return 0;
+}
+
+/**
+ * Increment (or start) the daily streak.
+ * Only increments once per day — safe to call multiple times.
+ */
+export async function incrementStreak(): Promise<number> {
+  const [countStr, lastDate] = await Promise.all([
+    AsyncStorage.getItem(KEYS.STREAK_COUNT),
+    AsyncStorage.getItem(KEYS.STREAK_LAST_DATE),
+  ]);
+
+  const today = getLocalDateString();
+  const yesterday = getLocalDateString(
+    new Date(Date.now() - 24 * 60 * 60 * 1000)
+  );
+
+  // Already incremented today — no double counting
+  if (lastDate === today) return parseInt(countStr || '1', 10);
+
+  let newCount: number;
+  if (lastDate === yesterday) {
+    // Consecutive day — extend streak
+    newCount = (parseInt(countStr || '0', 10)) + 1;
+  } else {
+    // Streak broken or first day ever — start fresh
+    newCount = 1;
+  }
+
+  await Promise.all([
+    AsyncStorage.setItem(KEYS.STREAK_COUNT, newCount.toString()),
+    AsyncStorage.setItem(KEYS.STREAK_LAST_DATE, today),
+  ]);
+  return newCount;
+}
+
+/**
+ * Check if onboarding has been completed
+ */
+export async function isOnboardingDone(): Promise<boolean> {
+  const value = await AsyncStorage.getItem(KEYS.ONBOARDING_DONE);
+  return value === 'true';
+}
+
+/**
+ * Mark onboarding as completed
+ */
+export async function setOnboardingDone(): Promise<void> {
+  await AsyncStorage.setItem(KEYS.ONBOARDING_DONE, 'true');
 }

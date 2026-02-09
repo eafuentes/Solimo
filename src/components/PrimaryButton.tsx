@@ -11,7 +11,11 @@ interface PrimaryButtonProps {
  * Primary CTA button for Lumini
  * Bright, joyful, accessible design
  */
-export const PrimaryButton: React.FC<PrimaryButtonProps> = ({ label, onPress, disabled = false }: PrimaryButtonProps) => {
+export const PrimaryButton: React.FC<PrimaryButtonProps> = ({
+  label,
+  onPress,
+  disabled = false,
+}: PrimaryButtonProps) => {
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
   const handlePressIn = () => {

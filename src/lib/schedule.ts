@@ -4,13 +4,13 @@ import { ActivityId } from '../types';
  * Activity schedule by day of week
  */
 const ACTIVITY_SCHEDULE: Record<number, ActivityId> = {
-  1: 'colors',    // Monday
-  2: 'shapes',    // Tuesday
-  3: 'numbers',   // Wednesday
-  4: 'patterns',  // Thursday
-  5: 'memory',    // Friday
-  6: 'sorting',   // Saturday
-  0: 'logic',     // Sunday
+  1: 'colors', // Monday
+  2: 'shapes', // Tuesday
+  3: 'numbers', // Wednesday
+  4: 'patterns', // Thursday
+  5: 'memory', // Friday
+  6: 'sorting', // Saturday
+  0: 'logic', // Sunday
 };
 
 /**

@@ -9,7 +9,11 @@ interface VoiceButtonProps {
   voiceType?: 'question' | 'label' | 'feedback'; // Different voice styles
 }
 
-export const VoiceButton: React.FC<VoiceButtonProps> = ({ text, style, voiceType = 'question' }) => {
+export const VoiceButton: React.FC<VoiceButtonProps> = ({
+  text,
+  style,
+  voiceType = 'question',
+}) => {
   // Configure audio mode once when component mounts
   useEffect(() => {
     const setupAudioMode = async () => {
@@ -31,9 +35,9 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({ text, style, voiceType
     try {
       // Different voice settings for different contexts
       const voiceSettings = {
-        question: { pitch: 1.1, rate: 0.75 }, // Friendly, slower for questions
-        label: { pitch: 1.3, rate: 0.85 }, // Higher, slightly faster for labels
-        feedback: { pitch: 1.0, rate: 0.9 }, // Normal pitch for feedback
+        question: { pitch: 1.1, rate: 0.88 }, // Warm, a bit more upbeat
+        label: { pitch: 1.15, rate: 0.92 }, // Friendly, slightly brighter
+        feedback: { pitch: 1.05, rate: 0.92 }, // Mildly upbeat
       };
 
       const settings = voiceSettings[voiceType] || voiceSettings.question;
@@ -53,7 +57,7 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({ text, style, voiceType
           await Speech.stop();
         }
 
-        await Speech.speak(text, {
+        Speech.speak(text, {
           language: 'en',
           pitch: settings.pitch,
           rate: settings.rate,
@@ -84,11 +88,7 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({ text, style, voiceType
   });
 
   return (
-    <TouchableOpacity
-      onPress={handleSpeak}
-      style={[styles.button, style]}
-      activeOpacity={0.7}
-    >
+    <TouchableOpacity onPress={handleSpeak} style={[styles.button, style]} activeOpacity={0.7}>
       <Text style={styles.text}>🔊</Text>
     </TouchableOpacity>
   );

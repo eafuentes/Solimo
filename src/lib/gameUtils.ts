@@ -44,7 +44,10 @@ export const ERROR_MESSAGES = [
 /**
  * Get random message from array
  */
-export function getRandomMessage(messages: Array<(label: string) => string>, label: string): string {
+export function getRandomMessage(
+  messages: Array<(label: string) => string>,
+  label: string
+): string {
   const messageTemplate = messages[Math.floor(Math.random() * messages.length)];
   return messageTemplate(label);
 }
@@ -52,12 +55,15 @@ export function getRandomMessage(messages: Array<(label: string) => string>, lab
 /**
  * Speak a message with given voice settings
  */
-export async function speakMessage(
+export function speakMessage(
   text: string,
-  settings: typeof VOICE_SETTINGS.question | typeof VOICE_SETTINGS.success | typeof VOICE_SETTINGS.error
-): Promise<void> {
+  settings:
+    | typeof VOICE_SETTINGS.question
+    | typeof VOICE_SETTINGS.success
+    | typeof VOICE_SETTINGS.error
+): void {
   try {
-    await Speech.speak(text, {
+    Speech.speak(text, {
       language: 'en',
       pitch: settings.pitch,
       rate: settings.rate,
@@ -111,18 +117,15 @@ export function shuffleArray<T>(array: T[]): T[] {
  * Seeded shuffle based on week number for consistent variety
  * Same child gets different questions each week, but same across day
  */
-export function getWeeklyQuestionsShuffle<T>(
-  array: T[],
-  seed?: number
-): T[] {
+export function getWeeklyQuestionsShuffle<T>(array: T[], seed?: number): T[] {
   const week = seed ?? getWeekNumber();
   const shuffled = [...array];
   let rng = week;
-  
+
   // Seeded random number generator (simple LCG)
   for (let i = shuffled.length - 1; i > 0; i--) {
     rng = (rng * 1103515245 + 12345) % 2147483648;
-    const j = (rng / 2147483648) * (i + 1) | 0;
+    const j = ((rng / 2147483648) * (i + 1)) | 0;
     [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
   }
   return shuffled;
@@ -142,4 +145,3 @@ function getWeekNumber(): number {
   const week = Math.round((ms - v.getTime()) / (7 * 24 * 60 * 60 * 1000)) + 1;
   return week;
 }
-

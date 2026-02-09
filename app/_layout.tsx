@@ -12,7 +12,9 @@ export default function RootLayout() {
       }}
     >
       <Stack.Screen name="index" options={{ title: 'Solimo' }} />
+      <Stack.Screen name="onboarding" options={{ title: 'Welcome', gestureEnabled: false }} />
       <Stack.Screen name="activity" options={{ title: 'Activity' }} />
+      <Stack.Screen name="playground" options={{ title: 'Free Play' }} />
     </Stack>
   );
 }

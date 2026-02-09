@@ -1,17 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { shuffleArray } from '../../lib/gameUtils';
 import { AgeBand } from '../../types';
 import { VoiceButton } from '../VoiceButton';
-import * as Speech from 'expo-speech';
-
-interface LogicGameProps {
-  ageBand: AgeBand;
-  difficulty: 1 | 2 | 3;
-  onCorrect: () => void;
-  onWrong: () => void;
-}
+import { shuffleArray } from '../../lib/gameUtils';
+import { useGameFeedback } from '../../hooks/useGameFeedback';
 
 interface LogicOption {
   id: string;
@@ -20,297 +13,232 @@ interface LogicOption {
   correct: boolean;
 }
 
+interface LogicGameProps {
+  ageBand: AgeBand;
+  difficulty: 1 | 2 | 3;
+  onCorrect: () => void;
+  onWrong: () => void;
+}
+
+/**
+ * Logic Game — teaches reasoning, cause-effect, and problem solving
+ *
+ * Age 3-4: Simple associations (what goes together?)
+ * Age 5-6: Cause & effect, simple riddles
+ * Age 7-8: Analogies, deductive reasoning
+ *
+ * Pedagogical approach:
+ * - Builds higher-order thinking progressively
+ * - Real-world scenarios make abstract logic concrete
+ * - Questions feel like fun riddles, not tests
+ * - Supports pre-readers with voice + emoji cues
+ */
 export const LogicGame: React.FC<LogicGameProps> = ({
   ageBand,
   difficulty,
   onCorrect,
   onWrong,
 }) => {
-  const [currentQuestion, setCurrentQuestion] = useState(0);
-  const [questionOrder] = useState(() => shuffleArray([0, 1, 2]));
-  const scaleAnim = React.useRef(new Animated.Value(1)).current;
   const insets = useSafeAreaInsets();
+  const [currentQuestion, setCurrentQuestion] = useState(0);
+  const { scaleAnim, speakQuestion, handleCorrectAnswer, handleWrongAnswer } = useGameFeedback();
 
-  // Auto-speak question when component mounts or question changes
-  React.useEffect(() => {
-    const speakQuestion = async () => {
-      const q = questions[ageBand][questionOrder[currentQuestion % questionOrder.length]];
-      await Speech.speak(q.text, {
-        language: 'en',
-        pitch: 1.5,
-        rate: 0.95,
-      });
-    };
-    setTimeout(speakQuestion, 500);
-  }, [currentQuestion, ageBand, questionOrder]);
-
-  // Stop speech on unmount
-  React.useEffect(() => {
-    return () => {
-      Speech.stop();
-    };
-  }, []);
-
-  const questions = {
+  const questions: Record<
+    AgeBand,
+    Array<{ text: string; instruction: string; options: LogicOption[] }>
+  > = {
     '3-4': [
       {
-        text: 'Which one is different?',
-        visual: '🔴 🔴 🟡',
+        text: 'What do you WEAR on your feet?',
+        instruction: 'What do you wear on your feet?',
         options: [
-          { id: '1', label: 'Yellow', emoji: '🟡', correct: true },
-          { id: '2', label: 'Red', emoji: '🔴', correct: false },
-          { id: '3', label: 'Blue', emoji: '🔵', correct: false },
+          { id: '1', label: 'shoes', emoji: '👟', correct: true },
+          { id: '2', label: 'hat', emoji: '🎩', correct: false },
+          { id: '3', label: 'gloves', emoji: '🧤', correct: false },
         ],
       },
       {
-        text: 'Which one does not belong?',
-        visual: '🍎 🍌 🚗',
+        text: 'What do you use to EAT soup?',
+        instruction: 'What do you use to eat soup?',
         options: [
-          { id: '1', label: 'Car', emoji: '🚗', correct: true },
-          { id: '2', label: 'Apple', emoji: '🍎', correct: false },
-          { id: '3', label: 'Banana', emoji: '🍌', correct: false },
+          { id: '1', label: 'fork', emoji: '🍴', correct: false },
+          { id: '2', label: 'spoon', emoji: '🥄', correct: true },
+          { id: '3', label: 'knife', emoji: '🔪', correct: false },
         ],
       },
       {
-        text: 'Which is big?',
-        visual: '🐜 🐘 🐝',
+        text: 'What gives us LIGHT at night?',
+        instruction: 'What gives us light at night?',
         options: [
-          { id: '1', label: 'Elephant', emoji: '🐘', correct: true },
-          { id: '2', label: 'Ant', emoji: '🐜', correct: false },
-          { id: '3', label: 'Bee', emoji: '🐝', correct: false },
+          { id: '1', label: 'moon', emoji: '🌙', correct: true },
+          { id: '2', label: 'cloud', emoji: '☁️', correct: false },
+          { id: '3', label: 'rain', emoji: '🌧️', correct: false },
+        ],
+      },
+      {
+        text: 'What goes with PEANUT BUTTER?',
+        instruction: 'What goes with peanut butter?',
+        options: [
+          { id: '1', label: 'jelly', emoji: '🍇', correct: true },
+          { id: '2', label: 'pizza', emoji: '🍕', correct: false },
+          { id: '3', label: 'soup', emoji: '🍜', correct: false },
+        ],
+      },
+      {
+        text: 'Where do FISH live?',
+        instruction: 'Where do fish live?',
+        options: [
+          { id: '1', label: 'tree', emoji: '🌳', correct: false },
+          { id: '2', label: 'water', emoji: '🌊', correct: true },
+          { id: '3', label: 'sky', emoji: '☁️', correct: false },
+        ],
+      },
+      {
+        text: 'What do you SLEEP on?',
+        instruction: 'What do you sleep on?',
+        options: [
+          { id: '1', label: 'bed', emoji: '🛏️', correct: true },
+          { id: '2', label: 'table', emoji: '🪑', correct: false },
+          { id: '3', label: 'car', emoji: '🚗', correct: false },
         ],
       },
     ],
     '5-6': [
       {
-        text: 'Which comes next? 1 2 3 ?',
-        visual: '1️⃣ 2️⃣ 3️⃣ ❓',
+        text: 'If it RAINS, what do you need?',
+        instruction: 'If it rains, what do you need?',
         options: [
-          { id: '1', label: 'Four', emoji: '4️⃣', correct: true },
-          { id: '2', label: 'Two', emoji: '2️⃣', correct: false },
-          { id: '3', label: 'Five', emoji: '5️⃣', correct: false },
+          { id: '1', label: 'umbrella', emoji: '☂️', correct: true },
+          { id: '2', label: 'sunglasses', emoji: '🕶️', correct: false },
+          { id: '3', label: 'swimsuit', emoji: '👙', correct: false },
         ],
       },
       {
-        text: 'What does a cat like to play with?',
-        visual: '🐱 🎾 ?',
+        text: 'Ice is COLD. Fire is…?',
+        instruction: 'Ice is cold. Fire is what?',
         options: [
-          { id: '1', label: 'Ball', emoji: '🎾', correct: true },
-          { id: '2', label: 'Carrot', emoji: '🥕', correct: false },
-          { id: '3', label: 'Cake', emoji: '🍰', correct: false },
+          { id: '1', label: 'cold', emoji: '🧊', correct: false },
+          { id: '2', label: 'hot', emoji: '🔥', correct: true },
+          { id: '3', label: 'wet', emoji: '💧', correct: false },
         ],
       },
       {
-        text: 'Which is the same?',
-        visual: '⭐ 🌟 🌙',
+        text: 'Day is LIGHT. Night is…?',
+        instruction: 'Day is light. Night is what?',
         options: [
-          { id: '1', label: 'Star', emoji: '⭐', correct: true },
-          { id: '2', label: 'Moon', emoji: '🌙', correct: false },
-          { id: '3', label: 'Sun', emoji: '☀️', correct: false },
+          { id: '1', label: 'dark', emoji: '🌑', correct: true },
+          { id: '2', label: 'bright', emoji: '☀️', correct: false },
+          { id: '3', label: 'cold', emoji: '❄️', correct: false },
+        ],
+      },
+      {
+        text: 'A bird FLIES. A fish…?',
+        instruction: 'A bird flies. A fish does what?',
+        options: [
+          { id: '1', label: 'runs', emoji: '🏃', correct: false },
+          { id: '2', label: 'swims', emoji: '🏊', correct: true },
+          { id: '3', label: 'flies', emoji: '🦅', correct: false },
+        ],
+      },
+      {
+        text: 'What has WHEELS?',
+        instruction: 'Which of these has wheels?',
+        options: [
+          { id: '1', label: 'bicycle', emoji: '🚲', correct: true },
+          { id: '2', label: 'tree', emoji: '🌳', correct: false },
+          { id: '3', label: 'book', emoji: '📚', correct: false },
+        ],
+      },
+      {
+        text: 'What comes after MONDAY?',
+        instruction: 'What day comes after Monday?',
+        options: [
+          { id: '1', label: 'Sunday', emoji: '☀️', correct: false },
+          { id: '2', label: 'Tuesday', emoji: '📅', correct: true },
+          { id: '3', label: 'Friday', emoji: '🎉', correct: false },
         ],
       },
     ],
     '7-8': [
       {
-        text: 'What is the opposite of big?',
-        visual: '📏 🏠 🐭',
+        text: 'Finger is to HAND as toe is to…?',
+        instruction: 'Finger is to hand as toe is to what?',
         options: [
-          { id: '1', label: 'Small', emoji: '🐭', correct: true },
-          { id: '2', label: 'House', emoji: '🏠', correct: false },
-          { id: '3', label: 'Ruler', emoji: '📏', correct: false },
+          { id: '1', label: 'foot', emoji: '🦶', correct: true },
+          { id: '2', label: 'arm', emoji: '💪', correct: false },
+          { id: '3', label: 'leg', emoji: '🦵', correct: false },
         ],
       },
       {
-        text: 'What is the opposite of hot?',
-        visual: '☀️ ❄️ 🔥',
+        text: 'Puppy is to DOG as kitten is to…?',
+        instruction: 'Puppy is to dog as kitten is to what?',
         options: [
-          { id: '1', label: 'Cold', emoji: '❄️', correct: true },
-          { id: '2', label: 'Fire', emoji: '🔥', correct: false },
-          { id: '3', label: 'Sun', emoji: '☀️', correct: false },
+          { id: '1', label: 'bird', emoji: '🐦', correct: false },
+          { id: '2', label: 'cat', emoji: '🐱', correct: true },
+          { id: '3', label: 'fish', emoji: '🐟', correct: false },
         ],
       },
       {
-        text: 'Which is fastest?',
-        visual: '🐢 🐇 🚶',
+        text: 'Which is TRUE?',
+        instruction: 'Which of these is true?',
         options: [
-          { id: '1', label: 'Rabbit', emoji: '🐇', correct: true },
-          { id: '2', label: 'Turtle', emoji: '🐢', correct: false },
-          { id: '3', label: 'Walking', emoji: '🚶', correct: false },
+          { id: '1', label: 'The sun is a star', emoji: '⭐', correct: true },
+          { id: '2', label: 'Fish can fly', emoji: '🐟', correct: false },
+          { id: '3', label: 'Ice is hot', emoji: '🧊', correct: false },
+        ],
+      },
+      {
+        text: "What has HANDS but can't clap?",
+        instruction: 'What has hands but cannot clap?',
+        options: [
+          { id: '1', label: 'clock', emoji: '⏰', correct: true },
+          { id: '2', label: 'person', emoji: '🧑', correct: false },
+          { id: '3', label: 'monkey', emoji: '🐒', correct: false },
+        ],
+      },
+      {
+        text: 'Book is to READ as food is to…?',
+        instruction: 'Book is to read as food is to what?',
+        options: [
+          { id: '1', label: 'sleep', emoji: '😴', correct: false },
+          { id: '2', label: 'eat', emoji: '🍽️', correct: true },
+          { id: '3', label: 'play', emoji: '🎮', correct: false },
+        ],
+      },
+      {
+        text: 'What month comes after JUNE?',
+        instruction: 'What month comes after June?',
+        options: [
+          { id: '1', label: 'May', emoji: '🌸', correct: false },
+          { id: '2', label: 'July', emoji: '🎆', correct: true },
+          { id: '3', label: 'August', emoji: '☀️', correct: false },
         ],
       },
     ],
   };
 
+  const [questionOrder] = useState(() => shuffleArray(questions[ageBand].map((_, i) => i)));
   const q = questions[ageBand][questionOrder[currentQuestion % questionOrder.length]];
 
-  const handleOptionPress = async (option: (typeof q.options)[0]) => {
-    const correct = option.correct;
+  useEffect(() => {
+    return speakQuestion(q.instruction);
+  }, [currentQuestion, speakQuestion, q.instruction]);
 
-    if (correct) {
-      const celebrationMessages = [
-        `${option.label}! Yay!`,
-        `${option.label}! Yes!`,
-        `${option.label}! Nice!`,
-        `${option.label}! Awesome!`,
-        `${option.label}! Cool!`,
-        `${option.label}! Wow!`,
-      ];
-      const message = celebrationMessages[Math.floor(Math.random() * celebrationMessages.length)];
-      await Speech.speak(message, {
-        language: 'en',
-        pitch: 1.65,
-        rate: 0.95,
-      });
-
-      Animated.sequence([
-        Animated.spring(scaleAnim, {
-          toValue: 1.15,
-          friction: 4,
-          tension: 40,
-          useNativeDriver: true,
-        }),
-        Animated.timing(scaleAnim, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-      ]).start();
-
-      setTimeout(() => {
-        onCorrect();
-        setCurrentQuestion((prev) => prev + 1);
-      }, 600);
+  const handleOptionPress = async (option: LogicOption) => {
+    if (option.correct) {
+      await handleCorrectAnswer(option.label, onCorrect, () => setCurrentQuestion((p) => p + 1));
     } else {
-      const tryAgainMessages = [
-        `That's ${option.label}. Try again!`,
-        `Nope! That's ${option.label}. Go!`,
-        `That's ${option.label}. Keep trying!`,
-        `Oops! That's ${option.label}. Once more!`,
-        `That is ${option.label}. You can do it!`,
-      ];
-      const message = tryAgainMessages[Math.floor(Math.random() * tryAgainMessages.length)];
-      await Speech.speak(message, {
-        language: 'en',
-        pitch: 1.45,
-        rate: 0.9,
-      });
-
-      Animated.sequence([
-        Animated.timing(scaleAnim, {
-          toValue: 0.95,
-          duration: 100,
-          useNativeDriver: true,
-        }),
-        Animated.timing(scaleAnim, {
-          toValue: 1.05,
-          duration: 100,
-          useNativeDriver: true,
-        }),
-        Animated.timing(scaleAnim, {
-          toValue: 0.95,
-          duration: 100,
-          useNativeDriver: true,
-        }),
-        Animated.timing(scaleAnim, {
-          toValue: 1,
-          duration: 100,
-          useNativeDriver: true,
-        }),
-      ]).start();
-
-      setTimeout(() => {
-        onWrong();
-      }, 400);
+      await handleWrongAnswer(option.label, onWrong);
     }
   };
 
-  const styles = StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: '#FFF9E6',
-      paddingHorizontal: 24,
-      paddingTop: insets.top + 16,
-      paddingBottom: 32,
-      justifyContent: 'center',
-      alignItems: 'center',
-    },
-    headerSection: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 12,
-      marginBottom: 24,
-      width: '100%',
-      justifyContent: 'center',
-    },
-    questionText: {
-      fontSize: 30,
-      fontWeight: '900',
-      color: '#1a1a1a',
-      textAlign: 'center',
-      flex: 1,
-    },
-    voiceButton: {
-      paddingVertical: 12,
-      paddingHorizontal: 12,
-    },
-    visualCard: {
-      backgroundColor: '#FFFFFF',
-      borderRadius: 28,
-      paddingVertical: 28,
-      paddingHorizontal: 32,
-      alignItems: 'center',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 8 },
-      shadowOpacity: 0.12,
-      shadowRadius: 16,
-      elevation: 10,
-      marginBottom: 28,
-    },
-    visualText: {
-      fontSize: 48,
-      lineHeight: 60,
-      textAlign: 'center',
-    },
-    optionsContainer: {
-      width: '100%',
-      gap: 14,
-    },
-    optionButton: {
-      paddingVertical: 18,
-      borderRadius: 22,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: '#4D96FF',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 6 },
-      shadowOpacity: 0.2,
-      shadowRadius: 10,
-      elevation: 8,
-    },
-    optionRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 10,
-    },
-    optionEmoji: {
-      fontSize: 24,
-    },
-    optionLabel: {
-      fontSize: 22,
-      fontWeight: '800',
-      color: '#FFFFFF',
-    },
-  });
-
   return (
-    <View style={styles.container}>
+    <View
+      style={[styles.container, { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 16 }]}
+    >
       <View style={styles.headerSection}>
         <Text style={styles.questionText}>{q.text}</Text>
-        <VoiceButton text={q.text} style={styles.voiceButton} />
-      </View>
-
-      <View style={styles.visualCard}>
-        <Text style={styles.visualText}>{q.visual}</Text>
+        <VoiceButton text={q.instruction} style={styles.voiceButton} />
       </View>
 
       <View style={styles.optionsContainer}>
@@ -320,11 +248,10 @@ export const LogicGame: React.FC<LogicGameProps> = ({
               onPress={() => handleOptionPress(option)}
               style={styles.optionButton}
               activeOpacity={0.7}
+              accessibilityLabel={option.label}
             >
-              <View style={styles.optionRow}>
-                <Text style={styles.optionEmoji}>{option.emoji}</Text>
-                <Text style={styles.optionLabel}>{option.label}</Text>
-              </View>
+              <Text style={styles.optionEmoji}>{option.emoji}</Text>
+              <Text style={styles.optionLabel}>{option.label}</Text>
             </TouchableOpacity>
           </Animated.View>
         ))}
@@ -332,5 +259,58 @@ export const LogicGame: React.FC<LogicGameProps> = ({
     </View>
   );
 };
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#E3F2FD',
+    paddingHorizontal: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 32,
+    width: '100%',
+    justifyContent: 'center',
+  },
+  questionText: {
+    fontSize: 28,
+    fontWeight: '900',
+    color: '#1a1a1a',
+    textAlign: 'center',
+    flex: 1,
+    lineHeight: 36,
+  },
+  voiceButton: { paddingVertical: 12, paddingHorizontal: 12 },
+  optionsContainer: { width: '100%', gap: 14 },
+  optionButton: {
+    paddingVertical: 20,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 3,
+    borderColor: '#90CAF9',
+    flexDirection: 'row',
+    gap: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  optionEmoji: { fontSize: 40 },
+  optionLabel: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#333',
+    textTransform: 'capitalize',
+    flex: 1,
+  },
+});
 
 export default LogicGame;

@@ -1,10 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { shuffleArray } from '../../lib/gameUtils';
 import { AgeBand } from '../../types';
 import { VoiceButton } from '../VoiceButton';
-import * as Speech from 'expo-speech';
+import { shuffleArray } from '../../lib/gameUtils';
+import { useGameFeedback } from '../../hooks/useGameFeedback';
+
+interface SortingItem {
+  id: string;
+  emoji: string;
+  label: string;
+}
 
 interface SortingGameProps {
   ageBand: AgeBand;
@@ -13,316 +19,248 @@ interface SortingGameProps {
   onWrong: () => void;
 }
 
-interface SortingOption {
-  id: string;
-  label: string;
-  emoji: string;
-  correct: boolean;
-}
-
+/**
+ * Sorting Game — teaches categorization, grouping, and classification
+ *
+ * Age 3-4: Sort by simple categories (animals vs food)
+ * Age 5-6: Sort by properties (big vs small, hot vs cold)
+ * Age 7-8: Multi-category sorting, odd-one-out
+ *
+ * Pedagogical approach:
+ * - Classification is a foundational cognitive skill
+ * - Clear binary categories for young children
+ * - Emoji visuals make abstract concepts concrete
+ * - "Which one belongs?" builds logical reasoning
+ */
 export const SortingGame: React.FC<SortingGameProps> = ({
   ageBand,
   difficulty,
   onCorrect,
   onWrong,
 }) => {
-  const [currentQuestion, setCurrentQuestion] = useState(0);
-  const [questionOrder] = useState(() => shuffleArray([0, 1, 2]));
-  const scaleAnim = React.useRef(new Animated.Value(1)).current;
   const insets = useSafeAreaInsets();
+  const [currentQuestion, setCurrentQuestion] = useState(0);
+  const { scaleAnim, speakQuestion, handleCorrectAnswer, handleWrongAnswer } = useGameFeedback();
 
-  // Auto-speak question when component mounts or question changes
-  React.useEffect(() => {
-    const speakQuestion = async () => {
-      const q = questions[ageBand][questionOrder[currentQuestion % questionOrder.length]];
-      await Speech.speak(q.text, {
-        language: 'en',
-        pitch: 1.5,
-        rate: 0.95,
-      });
-    };
-    setTimeout(speakQuestion, 500);
-  }, [currentQuestion, ageBand, questionOrder]);
-
-  // Stop speech on unmount
-  React.useEffect(() => {
-    return () => {
-      Speech.stop();
-    };
-  }, []);
-
-  const questions = {
+  const questions: Record<
+    AgeBand,
+    Array<{
+      text: string;
+      instruction: string;
+      items: Array<SortingItem & { correct: boolean }>;
+    }>
+  > = {
     '3-4': [
       {
-        text: 'Where does the apple go?',
-        item: '🍎',
-        options: [
-          { id: '1', label: 'Fruits', emoji: '🍎', correct: true },
-          { id: '2', label: 'Animals', emoji: '🐶', correct: false },
-          { id: '3', label: 'Shapes', emoji: '⭐', correct: false },
+        text: 'Which is a FRUIT?',
+        instruction: 'Which is a fruit?',
+        items: [
+          { id: '1', emoji: '🍎', label: 'apple', correct: true },
+          { id: '2', emoji: '🐶', label: 'dog', correct: false },
+          { id: '3', emoji: '🚗', label: 'car', correct: false },
         ],
       },
       {
-        text: 'Where does the dog go?',
-        item: '🐶',
-        options: [
-          { id: '1', label: 'Animals', emoji: '🐶', correct: true },
-          { id: '2', label: 'Fruits', emoji: '🍎', correct: false },
-          { id: '3', label: 'Toys', emoji: '🧸', correct: false },
+        text: 'Which is an ANIMAL?',
+        instruction: 'Which is an animal?',
+        items: [
+          { id: '1', emoji: '🍌', label: 'banana', correct: false },
+          { id: '2', emoji: '🐱', label: 'cat', correct: true },
+          { id: '3', emoji: '🌈', label: 'rainbow', correct: false },
         ],
       },
       {
-        text: 'Where does the star go?',
-        item: '⭐',
-        options: [
-          { id: '1', label: 'Shapes', emoji: '⭐', correct: true },
-          { id: '2', label: 'Animals', emoji: '🐱', correct: false },
-          { id: '3', label: 'Fruits', emoji: '🍌', correct: false },
+        text: 'Which can you EAT?',
+        instruction: 'Which can you eat?',
+        items: [
+          { id: '1', emoji: '🪨', label: 'rock', correct: false },
+          { id: '2', emoji: '🍊', label: 'orange', correct: true },
+          { id: '3', emoji: '📚', label: 'book', correct: false },
+        ],
+      },
+      {
+        text: 'Which is a TOY?',
+        instruction: 'Which is a toy?',
+        items: [
+          { id: '1', emoji: '🧸', label: 'teddy bear', correct: true },
+          { id: '2', emoji: '🌳', label: 'tree', correct: false },
+          { id: '3', emoji: '☁️', label: 'cloud', correct: false },
+        ],
+      },
+      {
+        text: 'Which FLIES?',
+        instruction: 'Which one flies?',
+        items: [
+          { id: '1', emoji: '🐦', label: 'bird', correct: true },
+          { id: '2', emoji: '🐟', label: 'fish', correct: false },
+          { id: '3', emoji: '🐢', label: 'turtle', correct: false },
+        ],
+      },
+      {
+        text: 'Which SWIMS?',
+        instruction: 'Which one swims?',
+        items: [
+          { id: '1', emoji: '🦁', label: 'lion', correct: false },
+          { id: '2', emoji: '🐟', label: 'fish', correct: true },
+          { id: '3', emoji: '🐔', label: 'chicken', correct: false },
         ],
       },
     ],
     '5-6': [
       {
-        text: 'Where does the car go?',
-        item: '🚗',
-        options: [
-          { id: '1', label: 'Vehicles', emoji: '🚗', correct: true },
-          { id: '2', label: 'Foods', emoji: '🍕', correct: false },
-          { id: '3', label: 'Clothes', emoji: '👕', correct: false },
+        text: 'Which does NOT belong?',
+        instruction: 'Which does not belong with the others?',
+        items: [
+          { id: '1', emoji: '🍎', label: 'apple', correct: false },
+          { id: '2', emoji: '🍌', label: 'banana', correct: false },
+          { id: '3', emoji: '🚗', label: 'car', correct: true },
         ],
       },
       {
-        text: 'Where does the pizza go?',
-        item: '🍕',
-        options: [
-          { id: '1', label: 'Foods', emoji: '🍕', correct: true },
-          { id: '2', label: 'Vehicles', emoji: '🚌', correct: false },
-          { id: '3', label: 'Clothes', emoji: '👗', correct: false },
+        text: 'Which is HOT?',
+        instruction: 'Which one is hot?',
+        items: [
+          { id: '1', emoji: '☀️', label: 'sun', correct: true },
+          { id: '2', emoji: '🧊', label: 'ice', correct: false },
+          { id: '3', emoji: '❄️', label: 'snowflake', correct: false },
         ],
       },
       {
-        text: 'Where does the shirt go?',
-        item: '👕',
-        options: [
-          { id: '1', label: 'Clothes', emoji: '👕', correct: true },
-          { id: '2', label: 'Foods', emoji: '🍇', correct: false },
-          { id: '3', label: 'Vehicles', emoji: '🚲', correct: false },
+        text: 'Which is COLD?',
+        instruction: 'Which one is cold?',
+        items: [
+          { id: '1', emoji: '🔥', label: 'fire', correct: false },
+          { id: '2', emoji: '🍦', label: 'ice cream', correct: true },
+          { id: '3', emoji: '☀️', label: 'sun', correct: false },
+        ],
+      },
+      {
+        text: 'Which does NOT belong?',
+        instruction: 'Which does not belong with the others?',
+        items: [
+          { id: '1', emoji: '🐶', label: 'dog', correct: false },
+          { id: '2', emoji: '🐱', label: 'cat', correct: false },
+          { id: '3', emoji: '🌺', label: 'flower', correct: true },
+        ],
+      },
+      {
+        text: 'Which is BIGGEST?',
+        instruction: 'Which is the biggest?',
+        items: [
+          { id: '1', emoji: '🐘', label: 'elephant', correct: true },
+          { id: '2', emoji: '🐱', label: 'cat', correct: false },
+          { id: '3', emoji: '🐭', label: 'mouse', correct: false },
+        ],
+      },
+      {
+        text: 'Which is SMALLEST?',
+        instruction: 'Which is the smallest?',
+        items: [
+          { id: '1', emoji: '🐘', label: 'elephant', correct: false },
+          { id: '2', emoji: '🐻', label: 'bear', correct: false },
+          { id: '3', emoji: '🐜', label: 'ant', correct: true },
         ],
       },
     ],
     '7-8': [
       {
-        text: 'Is this living or not?',
-        item: '🌳',
-        options: [
-          { id: '1', label: 'Living', emoji: '🌱', correct: true },
-          { id: '2', label: 'Non-living', emoji: '🏀', correct: false },
-          { id: '3', label: 'Weather', emoji: '☁️', correct: false },
+        text: 'Which does NOT belong?',
+        instruction: 'Which does not belong with the group?',
+        items: [
+          { id: '1', emoji: '🎸', label: 'guitar', correct: false },
+          { id: '2', emoji: '🎹', label: 'piano', correct: false },
+          { id: '3', emoji: '🏀', label: 'basketball', correct: true },
+          { id: '4', emoji: '🥁', label: 'drums', correct: false },
         ],
       },
       {
-        text: 'Is this living or not?',
-        item: '⚽',
-        options: [
-          { id: '1', label: 'Non-living', emoji: '⚽', correct: true },
-          { id: '2', label: 'Living', emoji: '🐟', correct: false },
-          { id: '3', label: 'Weather', emoji: '🌧️', correct: false },
+        text: 'Which is a VEGETABLE?',
+        instruction: 'Which one is a vegetable?',
+        items: [
+          { id: '1', emoji: '🍎', label: 'apple', correct: false },
+          { id: '2', emoji: '🥕', label: 'carrot', correct: true },
+          { id: '3', emoji: '🍌', label: 'banana', correct: false },
+          { id: '4', emoji: '🍇', label: 'grapes', correct: false },
         ],
       },
       {
-        text: 'Where does the cloud go?',
-        item: '☁️',
-        options: [
-          { id: '1', label: 'Weather', emoji: '☁️', correct: true },
-          { id: '2', label: 'Living', emoji: '🦋', correct: false },
-          { id: '3', label: 'Non-living', emoji: '🧱', correct: false },
+        text: 'Which lives in WATER?',
+        instruction: 'Which animal lives in water?',
+        items: [
+          { id: '1', emoji: '🦁', label: 'lion', correct: false },
+          { id: '2', emoji: '🐦', label: 'bird', correct: false },
+          { id: '3', emoji: '🐙', label: 'octopus', correct: true },
+          { id: '4', emoji: '🐻', label: 'bear', correct: false },
+        ],
+      },
+      {
+        text: 'Which is NOT a planet?',
+        instruction: 'Which is not a planet?',
+        items: [
+          { id: '1', emoji: '🌍', label: 'Earth', correct: false },
+          { id: '2', emoji: '⭐', label: 'Star', correct: true },
+          { id: '3', emoji: '🪐', label: 'Saturn', correct: false },
+          { id: '4', emoji: '🔴', label: 'Mars', correct: false },
+        ],
+      },
+      {
+        text: 'Which does NOT belong?',
+        instruction: 'Which does not belong?',
+        items: [
+          { id: '1', emoji: '✏️', label: 'pencil', correct: false },
+          { id: '2', emoji: '📏', label: 'ruler', correct: false },
+          { id: '3', emoji: '🍕', label: 'pizza', correct: true },
+          { id: '4', emoji: '📚', label: 'books', correct: false },
+        ],
+      },
+      {
+        text: 'Which is FASTEST?',
+        instruction: 'Which is the fastest?',
+        items: [
+          { id: '1', emoji: '🐢', label: 'turtle', correct: false },
+          { id: '2', emoji: '🐆', label: 'cheetah', correct: true },
+          { id: '3', emoji: '🐌', label: 'snail', correct: false },
+          { id: '4', emoji: '🐘', label: 'elephant', correct: false },
         ],
       },
     ],
   };
 
+  const [questionOrder] = useState(() => shuffleArray(questions[ageBand].map((_, i) => i)));
   const q = questions[ageBand][questionOrder[currentQuestion % questionOrder.length]];
 
-  const handleOptionPress = async (option: (typeof q.options)[0]) => {
-    const correct = option.correct;
+  useEffect(() => {
+    return speakQuestion(q.instruction);
+  }, [currentQuestion, speakQuestion, q.instruction]);
 
-    if (correct) {
-      const celebrationMessages = [
-        `${option.label}! Yay!`,
-        `${option.label}! Yes!`,
-        `${option.label}! Nice!`,
-        `${option.label}! Awesome!`,
-        `${option.label}! Cool!`,
-        `${option.label}! Wow!`,
-      ];
-      const message = celebrationMessages[Math.floor(Math.random() * celebrationMessages.length)];
-      await Speech.speak(message, {
-        language: 'en',
-        pitch: 1.65,
-        rate: 0.95,
-      });
-
-      Animated.sequence([
-        Animated.spring(scaleAnim, {
-          toValue: 1.15,
-          friction: 4,
-          tension: 40,
-          useNativeDriver: true,
-        }),
-        Animated.timing(scaleAnim, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-      ]).start();
-
-      setTimeout(() => {
-        onCorrect();
-        setCurrentQuestion((prev) => prev + 1);
-      }, 600);
+  const handleItemPress = async (item: SortingItem & { correct: boolean }) => {
+    if (item.correct) {
+      await handleCorrectAnswer(item.label, onCorrect, () => setCurrentQuestion((p) => p + 1));
     } else {
-      const tryAgainMessages = [
-        `That's ${option.label}. Try again!`,
-        `Nope! That's ${option.label}. Go!`,
-        `That's ${option.label}. Keep trying!`,
-        `Oops! That's ${option.label}. Once more!`,
-        `That is ${option.label}. You can do it!`,
-      ];
-      const message = tryAgainMessages[Math.floor(Math.random() * tryAgainMessages.length)];
-      await Speech.speak(message, {
-        language: 'en',
-        pitch: 1.45,
-        rate: 0.9,
-      });
-
-      Animated.sequence([
-        Animated.timing(scaleAnim, {
-          toValue: 0.95,
-          duration: 100,
-          useNativeDriver: true,
-        }),
-        Animated.timing(scaleAnim, {
-          toValue: 1.05,
-          duration: 100,
-          useNativeDriver: true,
-        }),
-        Animated.timing(scaleAnim, {
-          toValue: 0.95,
-          duration: 100,
-          useNativeDriver: true,
-        }),
-        Animated.timing(scaleAnim, {
-          toValue: 1,
-          duration: 100,
-          useNativeDriver: true,
-        }),
-      ]).start();
-
-      setTimeout(() => {
-        onWrong();
-      }, 400);
+      await handleWrongAnswer(item.label, onWrong);
     }
   };
 
-  const styles = StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: '#FFF9E6',
-      paddingHorizontal: 24,
-      paddingTop: insets.top + 16,
-      paddingBottom: 32,
-      justifyContent: 'center',
-      alignItems: 'center',
-    },
-    headerSection: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 12,
-      marginBottom: 24,
-      width: '100%',
-      justifyContent: 'center',
-    },
-    questionText: {
-      fontSize: 30,
-      fontWeight: '900',
-      color: '#1a1a1a',
-      textAlign: 'center',
-      flex: 1,
-    },
-    voiceButton: {
-      paddingVertical: 12,
-      paddingHorizontal: 12,
-    },
-    itemCard: {
-      backgroundColor: '#FFFFFF',
-      borderRadius: 28,
-      paddingVertical: 24,
-      paddingHorizontal: 32,
-      alignItems: 'center',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 8 },
-      shadowOpacity: 0.12,
-      shadowRadius: 16,
-      elevation: 10,
-      marginBottom: 24,
-    },
-    itemEmoji: {
-      fontSize: 64,
-    },
-    optionsContainer: {
-      width: '100%',
-      gap: 14,
-    },
-    optionButton: {
-      paddingVertical: 18,
-      borderRadius: 22,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: '#4D96FF',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 6 },
-      shadowOpacity: 0.2,
-      shadowRadius: 10,
-      elevation: 8,
-    },
-    optionRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 10,
-    },
-    optionEmoji: {
-      fontSize: 24,
-    },
-    optionLabel: {
-      fontSize: 22,
-      fontWeight: '800',
-      color: '#FFFFFF',
-    },
-  });
-
   return (
-    <View style={styles.container}>
+    <View
+      style={[styles.container, { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 16 }]}
+    >
       <View style={styles.headerSection}>
         <Text style={styles.questionText}>{q.text}</Text>
-        <VoiceButton text={q.text} style={styles.voiceButton} />
+        <VoiceButton text={q.instruction} style={styles.voiceButton} />
       </View>
 
-      <View style={styles.itemCard}>
-        <Text style={styles.itemEmoji}>{q.item}</Text>
-      </View>
-
-      <View style={styles.optionsContainer}>
-        {q.options.map((option) => (
-          <Animated.View key={option.id} style={{ transform: [{ scale: scaleAnim }] }}>
+      <View style={styles.itemsContainer}>
+        {q.items.map((item) => (
+          <Animated.View key={item.id} style={{ transform: [{ scale: scaleAnim }] }}>
             <TouchableOpacity
-              onPress={() => handleOptionPress(option)}
-              style={styles.optionButton}
+              onPress={() => handleItemPress(item)}
+              style={styles.itemButton}
               activeOpacity={0.7}
+              accessibilityLabel={item.label}
             >
-              <View style={styles.optionRow}>
-                <Text style={styles.optionEmoji}>{option.emoji}</Text>
-                <Text style={styles.optionLabel}>{option.label}</Text>
-              </View>
+              <Text style={styles.itemEmoji}>{item.emoji}</Text>
+              <Text style={styles.itemLabel}>{item.label}</Text>
             </TouchableOpacity>
           </Animated.View>
         ))}
@@ -330,5 +268,60 @@ export const SortingGame: React.FC<SortingGameProps> = ({
     </View>
   );
 };
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#FFF3E0',
+    paddingHorizontal: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 32,
+    width: '100%',
+    justifyContent: 'center',
+  },
+  questionText: {
+    fontSize: 28,
+    fontWeight: '900',
+    color: '#1a1a1a',
+    textAlign: 'center',
+    flex: 1,
+  },
+  voiceButton: { paddingVertical: 12, paddingHorizontal: 12 },
+  itemsContainer: {
+    width: '100%',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 14,
+  },
+  itemButton: {
+    width: 130,
+    paddingVertical: 20,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 3,
+    borderColor: '#FFCC80',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  itemEmoji: { fontSize: 44, marginBottom: 8 },
+  itemLabel: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#333',
+    textTransform: 'capitalize',
+  },
+});
 
 export default SortingGame;

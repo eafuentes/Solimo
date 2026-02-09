@@ -139,9 +139,7 @@ export async function loadActivityPrompts(
   // In a real app, these would be loaded from JSON files
   // For now, return empty array (to be populated with content JSON files)
   const prompts =
-    contentMap[activityId]?.[ageBand]?.[difficulty] ||
-    contentMap[activityId]?.[ageBand]?.[1] ||
-    [];
+    contentMap[activityId]?.[ageBand]?.[difficulty] || contentMap[activityId]?.[ageBand]?.[1] || [];
 
   return prompts;
 }

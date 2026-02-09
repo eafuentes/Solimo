@@ -1,7 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, Modal, TouchableOpacity, Switch, StyleSheet, Animated } from 'react-native';
 import { AgeBand } from '../types';
-import { getAgeBand, setAgeBand, isSoundEnabled, setSoundEnabled, resetProgress, clearTodaysCompletion } from '../lib/storage';
+import {
+  getAgeBand,
+  setAgeBand,
+  isSoundEnabled,
+  setSoundEnabled,
+  resetProgress,
+  clearTodaysCompletion,
+} from '../lib/storage';
 
 interface ParentCornerModalProps {
   visible: boolean;
@@ -13,7 +20,10 @@ interface ParentCornerModalProps {
  * Accessed via lock icon + 2 second press
  * Controls age band, sound, and reset
  */
-export const ParentCornerModal: React.FC<ParentCornerModalProps> = ({ visible, onClose }: ParentCornerModalProps) => {
+export const ParentCornerModal: React.FC<ParentCornerModalProps> = ({
+  visible,
+  onClose,
+}: ParentCornerModalProps) => {
   const slideAnim = useRef(new Animated.Value(100)).current;
   const [ageBand, setAgeBandLocal] = useState<AgeBand>('3-4');
   const [soundEnabled, setSoundEnabledLocal] = useState(true);
@@ -152,11 +162,7 @@ export const ParentCornerModal: React.FC<ParentCornerModalProps> = ({ visible, o
 
   return (
     <Modal visible={visible} transparent animationType="none">
-      <TouchableOpacity
-        activeOpacity={1}
-        onPress={onClose}
-        style={styles.overlay}
-      >
+      <TouchableOpacity activeOpacity={1} onPress={onClose} style={styles.overlay}>
         <Animated.View
           style={[
             styles.modalContent,
@@ -186,9 +192,7 @@ export const ParentCornerModal: React.FC<ParentCornerModalProps> = ({ visible, o
                   onPress={() => handleAgeBandChange(band)}
                   style={[
                     styles.ageBandButton,
-                    ageBand === band
-                      ? styles.ageBandButtonActive
-                      : styles.ageBandButtonInactive,
+                    ageBand === band ? styles.ageBandButtonActive : styles.ageBandButtonInactive,
                   ]}
                   activeOpacity={0.7}
                 >
@@ -219,20 +223,12 @@ export const ParentCornerModal: React.FC<ParentCornerModalProps> = ({ visible, o
           </TouchableOpacity>
 
           {/* Full reset button */}
-          <TouchableOpacity
-            onPress={handleReset}
-            style={styles.resetButton}
-            activeOpacity={0.8}
-          >
+          <TouchableOpacity onPress={handleReset} style={styles.resetButton} activeOpacity={0.8}>
             <Text style={styles.resetButtonText}>Reset All Progress</Text>
           </TouchableOpacity>
 
           {/* Close button */}
-          <TouchableOpacity
-            onPress={onClose}
-            style={styles.closeButton}
-            activeOpacity={0.6}
-          >
+          <TouchableOpacity onPress={onClose} style={styles.closeButton} activeOpacity={0.6}>
             <Text style={styles.closeButtonText}>Close</Text>
           </TouchableOpacity>
         </Animated.View>

@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AgeBand } from '../../types';
 import { VoiceButton } from '../VoiceButton';
-import * as Speech from 'expo-speech';
+import { shuffleArray } from '../../lib/gameUtils';
+import { useGameFeedback } from '../../hooks/useGameFeedback';
 
 interface MemoryGameProps {
   ageBand: AgeBand;
@@ -12,314 +13,306 @@ interface MemoryGameProps {
   onWrong: () => void;
 }
 
-interface Card {
+interface MemoryCard {
   id: string;
   emoji: string;
-  isFlipped: boolean;
-  isMatched: boolean;
+  pairId: string;
+  flipped: boolean;
+  matched: boolean;
 }
 
+/**
+ * Get themed emoji sets by age band for varied replay experience.
+ * Each set has pairs to match — younger kids get fewer pairs.
+ */
+function getEmojiSets(ageBand: AgeBand): string[][] {
+  const sets: Record<AgeBand, string[][]> = {
+    '3-4': [
+      ['🐶', '🐱', '🐰'],
+      ['🍎', '🍌', '🍊'],
+      ['⭐', '❤️', '🌈'],
+      ['🚗', '✈️', '🚂'],
+    ],
+    '5-6': [
+      ['🐶', '🐱', '🐰', '🐻'],
+      ['🍎', '🍌', '🍊', '🍇'],
+      ['⭐', '❤️', '🌈', '🌙'],
+      ['🦁', '🐸', '🦋', '🐝'],
+    ],
+    '7-8': [
+      ['🐶', '🐱', '🐰', '🐻', '🦊'],
+      ['🍎', '🍌', '🍊', '🍇', '🍓'],
+      ['⭐', '❤️', '🌈', '🌙', '☀️'],
+      ['🦁', '🐸', '🦋', '🐝', '🐢'],
+    ],
+  };
+  return sets[ageBand];
+}
+
+/**
+ * Memory Game — classic card matching for working memory development
+ *
+ * Age 3-4: 3 pairs (6 cards) — builds basic recall
+ * Age 5-6: 4 pairs (8 cards) — strengthens working memory
+ * Age 7-8: 5 pairs (10 cards) — challenges attention & memory
+ *
+ * Pedagogical approach:
+ * - Card matching exercises visual working memory (a key cognitive skill)
+ * - Theme rotation (animals, fruits, etc.) keeps engagement high
+ * - "Find the matching pair!" is universally understood
+ * - Celebrates each match with speech + animation
+ * - No time pressure — kids learn at their own pace
+ */
 export const MemoryGame: React.FC<MemoryGameProps> = ({
   ageBand,
   difficulty,
   onCorrect,
   onWrong,
 }) => {
-  const [cards, setCards] = useState<Card[]>([]);
-  const [selectedCards, setSelectedCards] = useState<string[]>([]);
-  const [matchedPairs, setMatchedPairs] = useState(0);
-  const [totalPairs, setTotalPairs] = useState(0);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const scaleAnim = useRef(new Animated.Value(1)).current;
   const insets = useSafeAreaInsets();
+  const { speak, speakQuestion, handleGenericCorrect, handleGenericWrong } = useGameFeedback();
 
-  const emojis = ['🍎', '🍌', '🍊', '🍇', '🍓', '🍑', '🥝', '🍒'];
+  const [cards, setCards] = useState<MemoryCard[]>([]);
+  const [flippedIds, setFlippedIds] = useState<string[]>([]);
+  const [locked, setLocked] = useState(false);
+  const flipAnims = useRef<Record<string, Animated.Value>>({});
 
-  // Initialize game
+  // Initialize cards with a random emoji theme
   useEffect(() => {
-    initializeGame();
+    const sets = getEmojiSets(ageBand);
+    const emojis = sets[Math.floor(Math.random() * sets.length)];
+    const pairs: MemoryCard[] = [];
+
+    emojis.forEach((emoji, idx) => {
+      pairs.push(
+        { id: `a${idx}`, emoji, pairId: `p${idx}`, flipped: false, matched: false },
+        { id: `b${idx}`, emoji, pairId: `p${idx}`, flipped: false, matched: false }
+      );
+    });
+
+    const shuffled = shuffleArray(pairs);
+    setCards(shuffled);
+
+    // Initialize flip animations
+    const anims: Record<string, Animated.Value> = {};
+    shuffled.forEach((card) => {
+      anims[card.id] = new Animated.Value(0);
+    });
+    flipAnims.current = anims;
   }, [ageBand]);
 
-  // Auto-speak instruction
+  // Speak the instruction on mount
   useEffect(() => {
-    const message = 'Match the pairs! Tap two cards to find matching pairs.';
-    Speech.speak(message, {
-      language: 'en',
-      pitch: 1.5,
-      rate: 0.95,
-    });
+    return speakQuestion('Find the matching pairs!');
+  }, [speakQuestion]);
+
+  const flipCard = useCallback((id: string, toFlipped: boolean) => {
+    const anim = flipAnims.current[id];
+    if (!anim) return;
+    Animated.spring(anim, {
+      toValue: toFlipped ? 1 : 0,
+      friction: 8,
+      tension: 100,
+      useNativeDriver: true,
+    }).start();
   }, []);
 
-  // Stop speech on unmount
-  useEffect(() => {
-    return () => {
-      Speech.stop();
-    };
-  }, []);
+  const handleCardPress = useCallback(
+    async (card: MemoryCard) => {
+      if (locked || card.flipped || card.matched) return;
+      if (flippedIds.includes(card.id)) return;
 
-  const initializeGame = () => {
-    let numPairs = 0;
-    if (ageBand === '3-4') numPairs = 2; // Reduced from 3 for lower cognitive load
-    else if (ageBand === '5-6') numPairs = 4;
-    else numPairs = 6;
+      // Flip this card
+      const newFlipped = [...flippedIds, card.id];
+      setFlippedIds(newFlipped);
+      flipCard(card.id, true);
 
-    setTotalPairs(numPairs);
-    setMatchedPairs(0);
-    setSelectedCards([]);
+      setCards((prev) => prev.map((c) => (c.id === card.id ? { ...c, flipped: true } : c)));
 
-    // Create pairs
-    const selectedEmojis = emojis.slice(0, numPairs);
-    const cardPairs = [...selectedEmojis, ...selectedEmojis];
+      if (newFlipped.length === 2) {
+        setLocked(true);
+        const [firstId, secondId] = newFlipped;
+        const first = cards.find((c) => c.id === firstId)!;
+        const second = card;
 
-    // Shuffle
-    const shuffled = cardPairs
-      .sort(() => Math.random() - 0.5)
-      .map((emoji, idx) => ({
-        id: idx.toString(),
-        emoji,
-        isFlipped: false,
-        isMatched: false,
-      }));
-
-    setCards(shuffled);
-  };
-
-  const handleCardPress = async (cardId: string) => {
-    if (isProcessing || selectedCards.length >= 2) return;
-    if (selectedCards.includes(cardId)) return;
-
-    const card = cards.find((c) => c.id === cardId);
-    if (!card || card.isMatched || card.isFlipped) return;
-
-    const newSelectedCards = [...selectedCards, cardId];
-    setSelectedCards(newSelectedCards);
-
-    // Flip card
-    const newCards = cards.map((c) =>
-      c.id === cardId ? { ...c, isFlipped: true } : c
-    );
-    setCards(newCards);
-
-    // Check for match when 2 cards selected
-    if (newSelectedCards.length === 2) {
-      setIsProcessing(true);
-
-      setTimeout(async () => {
-        const card1 = newCards.find((c) => c.id === newSelectedCards[0]);
-        const card2 = newCards.find((c) => c.id === newSelectedCards[1]);
-
-        if (card1 && card2) {
-          if (card1.emoji === card2.emoji) {
-            // Match!
-            const matched = newCards.map((c) =>
-              c.id === card1.id || c.id === card2.id
-                ? { ...c, isMatched: true }
-                : c
+        if (first.pairId === second.pairId) {
+          // Match found!
+          await handleGenericCorrect(onCorrect);
+          setCards((prev) =>
+            prev.map((c) =>
+              c.pairId === first.pairId ? { ...c, matched: true, flipped: true } : c
+            )
+          );
+          setFlippedIds([]);
+          setLocked(false);
+        } else {
+          // No match — flip back after a brief reveal
+          await handleGenericWrong(onWrong);
+          setTimeout(() => {
+            flipCard(firstId, false);
+            flipCard(secondId, false);
+            setCards((prev) =>
+              prev.map((c) =>
+                c.id === firstId || c.id === secondId ? { ...c, flipped: false } : c
+              )
             );
-            setCards(matched);
-            setMatchedPairs((prev) => prev + 1);
-
-            await Speech.speak(`Match! You found ${card1.emoji}!`, {
-              language: 'en',
-              pitch: 1.65,
-              rate: 0.95,
-            });
-
-            // Success animation
-            Animated.sequence([
-              Animated.spring(scaleAnim, {
-                toValue: 1.15,
-                friction: 4,
-                tension: 40,
-                useNativeDriver: true,
-              }),
-              Animated.timing(scaleAnim, {
-                toValue: 1,
-                duration: 300,
-                useNativeDriver: true,
-              }),
-            ]).start();
-
-            if (matchedPairs + 1 === totalPairs) {
-              setTimeout(() => {
-                Speech.speak('Awesome! You won! All pairs matched!', {
-                  language: 'en',
-                  pitch: 1.65,
-                  rate: 0.95,
-                });
-                onCorrect();
-              }, 600);
-            }
-          } else {
-            // No match
-            await Speech.speak('Try again!', {
-              language: 'en',
-              pitch: 1.45,
-              rate: 0.9,
-            });
-
-            // Shake animation
-            Animated.sequence([
-              Animated.timing(scaleAnim, {
-                toValue: 0.95,
-                duration: 100,
-                useNativeDriver: true,
-              }),
-              Animated.timing(scaleAnim, {
-                toValue: 1.05,
-                duration: 100,
-                useNativeDriver: true,
-              }),
-              Animated.timing(scaleAnim, {
-                toValue: 0.95,
-                duration: 100,
-                useNativeDriver: true,
-              }),
-              Animated.timing(scaleAnim, {
-                toValue: 1,
-                duration: 100,
-                useNativeDriver: true,
-              }),
-            ]).start();
-
-            // Flip back
-            const flipped = newCards.map((c: Card) =>
-              c.id === card1.id || c.id === card2.id
-                ? { ...c, isFlipped: false }
-                : c
-            );
-            setCards(flipped);
-            onWrong();
-          }
+            setFlippedIds([]);
+            setLocked(false);
+          }, 600);
         }
+      }
+    },
+    [
+      cards,
+      flippedIds,
+      locked,
+      flipCard,
+      handleGenericCorrect,
+      handleGenericWrong,
+      onCorrect,
+      onWrong,
+    ]
+  );
 
-        setSelectedCards([]);
-        setIsProcessing(false);
-      }, 600);
-    }
-  };
-
-  const styles = StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: '#FFF9E6',
-      paddingHorizontal: 24,
-      paddingTop: insets.top + 16,
-      paddingBottom: 32,
-      justifyContent: 'center',
-    },
-    headerSection: {
-      marginBottom: 24,
-      alignItems: 'center',
-    },
-    questionText: {
-      fontSize: 28,
-      fontWeight: '900',
-      color: '#1a1a1a',
-      textAlign: 'center',
-      marginBottom: 8,
-    },
-    voiceButton: {
-      paddingVertical: 8,
-      paddingHorizontal: 8,
-    },
-    scoreText: {
-      fontSize: 18,
-      fontWeight: '700',
-      color: '#666',
-      textAlign: 'center',
-      marginTop: 8,
-    },
-    gridContainer: {
-      flex: 1,
-      justifyContent: 'center',
-    },
-    grid: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      justifyContent: 'space-between',
-      gap: 12,
-    },
-    cardWrapper: {
-      width: '23%',
-      aspectRatio: 1,
-    },
-    cardWrapperLarge: {
-      width: '31%',
-      aspectRatio: 1,
-    },
-    card: {
-      flex: 1,
-      backgroundColor: '#4D96FF',
-      borderRadius: 16,
-      justifyContent: 'center',
-      alignItems: 'center',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.2,
-      shadowRadius: 8,
-      elevation: 6,
-    },
-    cardMatched: {
-      backgroundColor: '#A8E6CF',
-    },
-    cardEmoji: {
-      fontSize: 48,
-    },
-    cardBack: {
-      fontSize: 32,
-    },
-  });
-
-  const gridWidth = ageBand === '3-4' ? 3 : ageBand === '5-6' ? 4 : 6;
-  const cardWidthClass =
-    gridWidth === 3 ? styles.cardWrapperLarge : styles.cardWrapper;
+  // Determine grid columns based on card count
+  const numColumns = cards.length <= 6 ? 3 : cards.length <= 8 ? 4 : 5;
 
   return (
-    <View style={styles.container}>
+    <View
+      style={[styles.container, { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 16 }]}
+    >
       <View style={styles.headerSection}>
-        <Text style={styles.questionText}>🎮 Memory Match</Text>
-        <Text style={styles.scoreText}>
-          Pairs: {matchedPairs} / {totalPairs}
-        </Text>
-        <VoiceButton
-          text={`Match the pairs! Progress: ${matchedPairs} of ${totalPairs} pairs matched.`}
-          style={styles.voiceButton}
-        />
+        <Text style={styles.questionText}>🧠 Find the matching pairs!</Text>
+        <VoiceButton text="Find the matching pairs!" style={styles.voiceButton} />
       </View>
 
-      <View style={styles.gridContainer}>
-        <View style={styles.grid}>
-          {cards.map((card) => (
-            <View key={card.id} style={cardWidthClass}>
+      <View style={[styles.grid, { maxWidth: numColumns * 80 }]}>
+        {cards.map((card) => {
+          const anim = flipAnims.current[card.id];
+          const frontInterpolate = anim
+            ? anim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] })
+            : '0deg';
+          const backInterpolate = anim
+            ? anim.interpolate({ inputRange: [0, 1], outputRange: ['180deg', '360deg'] })
+            : '180deg';
+
+          return (
+            <View key={card.id} style={styles.cardWrapper}>
+              {/* Card back (face down) */}
               <Animated.View
-                style={{
-                  transform: [{ scale: scaleAnim }],
-                  flex: 1,
-                }}
+                style={[
+                  styles.card,
+                  styles.cardBack,
+                  card.matched && styles.cardMatched,
+                  { transform: [{ rotateY: frontInterpolate }] },
+                ]}
               >
                 <TouchableOpacity
-                  onPress={() => handleCardPress(card.id)}
-                  style={[
-                    styles.card,
-                    card.isMatched && styles.cardMatched,
-                  ]}
+                  style={styles.cardTouchable}
+                  onPress={() => handleCardPress(card)}
                   activeOpacity={0.7}
-                  disabled={card.isMatched || card.isFlipped}
+                  disabled={locked || card.matched}
+                  accessibilityLabel="Hidden card"
                 >
-                  {card.isFlipped || card.isMatched ? (
-                    <Text style={styles.cardEmoji}>{card.emoji}</Text>
-                  ) : (
-                    <Text style={styles.cardBack}>?</Text>
-                  )}
+                  <Text style={styles.cardBackText}>❓</Text>
+                </TouchableOpacity>
+              </Animated.View>
+
+              {/* Card front (face up) */}
+              <Animated.View
+                style={[
+                  styles.card,
+                  styles.cardFront,
+                  card.matched && styles.cardMatched,
+                  { transform: [{ rotateY: backInterpolate }] },
+                ]}
+              >
+                <TouchableOpacity
+                  style={styles.cardTouchable}
+                  onPress={() => handleCardPress(card)}
+                  activeOpacity={0.7}
+                  disabled={locked || card.matched}
+                  accessibilityLabel={card.emoji}
+                >
+                  <Text style={styles.cardEmoji}>{card.emoji}</Text>
                 </TouchableOpacity>
               </Animated.View>
             </View>
-          ))}
-        </View>
+          );
+        })}
       </View>
     </View>
   );
 };
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#E8F5E9',
+    paddingHorizontal: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 28,
+    width: '100%',
+    justifyContent: 'center',
+  },
+  questionText: {
+    fontSize: 26,
+    fontWeight: '900',
+    color: '#1a1a1a',
+    textAlign: 'center',
+    flex: 1,
+  },
+  voiceButton: { paddingVertical: 12, paddingHorizontal: 12 },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  cardWrapper: {
+    width: 68,
+    height: 68,
+  },
+  card: {
+    position: 'absolute',
+    width: 68,
+    height: 68,
+    borderRadius: 14,
+    backfaceVisibility: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  cardBack: {
+    backgroundColor: '#7C4DFF',
+  },
+  cardFront: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 2,
+    borderColor: '#E0E0E0',
+  },
+  cardMatched: {
+    opacity: 0.5,
+  },
+  cardTouchable: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardBackText: {
+    fontSize: 28,
+  },
+  cardEmoji: {
+    fontSize: 32,
+  },
+});
 
 export default MemoryGame;

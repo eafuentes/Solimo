@@ -1,11 +1,18 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Svg, { Circle, Rect, Polygon, Ellipse } from 'react-native-svg';
 import { AgeBand } from '../../types';
-import Svg, { Circle, Rect, Polygon } from 'react-native-svg';
 import { VoiceButton } from '../VoiceButton';
 import { shuffleArray } from '../../lib/gameUtils';
-import * as Speech from 'expo-speech';
+import { useGameFeedback } from '../../hooks/useGameFeedback';
+
+interface ShapeOption {
+  id: string;
+  name: string;
+  emoji: string;
+  correct: boolean;
+}
 
 interface ShapesGameProps {
   ageBand: AgeBand;
@@ -14,319 +21,367 @@ interface ShapesGameProps {
   onWrong: () => void;
 }
 
+/**
+ * Render an SVG shape illustration for the question area.
+ * Uses react-native-svg so shapes are crisp on every screen size.
+ */
+function ShapeIllustration({ shape }: { shape: string }) {
+  const size = 120;
+  const half = size / 2;
+
+  switch (shape) {
+    case 'circle':
+      return (
+        <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+          <Circle
+            cx={half}
+            cy={half}
+            r={half - 4}
+            fill="#FF6B6B"
+            stroke="#CC5555"
+            strokeWidth={3}
+          />
+        </Svg>
+      );
+    case 'square':
+      return (
+        <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+          <Rect
+            x={4}
+            y={4}
+            width={size - 8}
+            height={size - 8}
+            rx={6}
+            fill="#4DABF7"
+            stroke="#3793DD"
+            strokeWidth={3}
+          />
+        </Svg>
+      );
+    case 'triangle':
+      return (
+        <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+          <Polygon
+            points={`${half},8 ${size - 8},${size - 8} 8,${size - 8}`}
+            fill="#51CF66"
+            stroke="#3EAF52"
+            strokeWidth={3}
+          />
+        </Svg>
+      );
+    case 'rectangle':
+      return (
+        <Svg width={size} height={size * 0.6} viewBox={`0 0 ${size} ${size * 0.6}`}>
+          <Rect
+            x={4}
+            y={4}
+            width={size - 8}
+            height={size * 0.6 - 8}
+            rx={6}
+            fill="#FAB005"
+            stroke="#D99E04"
+            strokeWidth={3}
+          />
+        </Svg>
+      );
+    case 'star':
+      return (
+        <Svg width={size} height={size} viewBox="0 0 120 120">
+          <Polygon
+            points="60,10 73,45 110,45 80,68 90,105 60,82 30,105 40,68 10,45 47,45"
+            fill="#FF922B"
+            stroke="#DD7A22"
+            strokeWidth={3}
+          />
+        </Svg>
+      );
+    case 'diamond':
+      return (
+        <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+          <Polygon
+            points={`${half},8 ${size - 8},${half} ${half},${size - 8} 8,${half}`}
+            fill="#CC5DE8"
+            stroke="#AA4FC8"
+            strokeWidth={3}
+          />
+        </Svg>
+      );
+    case 'oval':
+      return (
+        <Svg width={size} height={size * 0.7} viewBox={`0 0 ${size} ${size * 0.7}`}>
+          <Ellipse
+            cx={half}
+            cy={size * 0.35}
+            rx={half - 4}
+            ry={size * 0.35 - 4}
+            fill="#20C997"
+            stroke="#1BAA82"
+            strokeWidth={3}
+          />
+        </Svg>
+      );
+    case 'pentagon':
+      return (
+        <Svg width={size} height={size} viewBox="0 0 120 120">
+          <Polygon
+            points="60,10 110,45 95,100 25,100 10,45"
+            fill="#339AF0"
+            stroke="#2882D0"
+            strokeWidth={3}
+          />
+        </Svg>
+      );
+    case 'hexagon':
+      return (
+        <Svg width={size} height={size} viewBox="0 0 120 120">
+          <Polygon
+            points="90,15 115,60 90,105 30,105 5,60 30,15"
+            fill="#F06595"
+            stroke="#CC5580"
+            strokeWidth={3}
+          />
+        </Svg>
+      );
+    default:
+      return null;
+  }
+}
+
+/**
+ * Shapes Game — teaches shape recognition, naming, and properties
+ *
+ * Age 3-4: Basic shapes (circle, square, triangle) with big visual cues
+ * Age 5-6: More shapes (rectangle, star, diamond, oval)
+ * Age 7-8: Properties (sides, corners) + pentagon, hexagon
+ *
+ * Pedagogical approach:
+ * - Large SVG illustrations for clear visual identification
+ * - Emoji + name labels for multi-modal learning
+ * - Auto-spoken questions for pre-readers
+ * - Positive reinforcement on every attempt
+ */
 export const ShapesGame: React.FC<ShapesGameProps> = ({
   ageBand,
   difficulty,
   onCorrect,
   onWrong,
 }) => {
+  const insets = useSafeAreaInsets();
   const [currentQuestion, setCurrentQuestion] = useState(0);
-  const [questionOrder] = useState(() => shuffleArray([0, 1, 2]));
-  const scaleAnim = React.useRef(new Animated.Value(1)).current;
+  const { scaleAnim, speakQuestion, handleCorrectAnswer, handleWrongAnswer } = useGameFeedback();
 
-  // Auto-speak question when component mounts or question changes
-  React.useEffect(() => {
-    const speakQuestion = async () => {
-      const q = questions[ageBand][questionOrder[currentQuestion % questionOrder.length]];
-      await Speech.speak(q.text, {
-        language: 'en',
-        pitch: 1.5, // More playful and fun
-        rate: 0.95, // Slightly faster for energy
-      });
-    };
-    setTimeout(speakQuestion, 500); // Small delay for component to settle
-  }, [currentQuestion, ageBand, questionOrder]);
-
-  // Stop speech on unmount
-  React.useEffect(() => {
-    return () => {
-      Speech.stop();
-    };
-  }, []);
-
-  const questions = {
+  const questions: Record<
+    AgeBand,
+    Array<{ text: string; shape: string; options: ShapeOption[] }>
+  > = {
     '3-4': [
       {
         text: 'Find the CIRCLE',
-        target: 'circle',
+        shape: 'circle',
         options: [
-          { id: '1', name: 'circle', shape: 'circle', correct: true },
-          { id: '2', name: 'square', shape: 'square', correct: false },
-          { id: '3', name: 'triangle', shape: 'triangle', correct: false },
+          { id: '1', name: 'circle', emoji: '⭕', correct: true },
+          { id: '2', name: 'square', emoji: '🟦', correct: false },
+          { id: '3', name: 'triangle', emoji: '🔺', correct: false },
         ],
       },
       {
         text: 'Find the SQUARE',
-        target: 'square',
+        shape: 'square',
         options: [
-          { id: '1', name: 'triangle', shape: 'triangle', correct: false },
-          { id: '2', name: 'square', shape: 'square', correct: true },
-          { id: '3', name: 'circle', shape: 'circle', correct: false },
+          { id: '1', name: 'square', emoji: '🟦', correct: true },
+          { id: '2', name: 'circle', emoji: '⭕', correct: false },
+          { id: '3', name: 'triangle', emoji: '🔺', correct: false },
         ],
       },
       {
         text: 'Find the TRIANGLE',
-        target: 'triangle',
+        shape: 'triangle',
         options: [
-          { id: '1', name: 'square', shape: 'square', correct: false },
-          { id: '2', name: 'circle', shape: 'circle', correct: false },
-          { id: '3', name: 'triangle', shape: 'triangle', correct: true },
+          { id: '1', name: 'circle', emoji: '⭕', correct: false },
+          { id: '2', name: 'triangle', emoji: '🔺', correct: true },
+          { id: '3', name: 'square', emoji: '🟦', correct: false },
+        ],
+      },
+      {
+        text: 'Which one is ROUND?',
+        shape: 'circle',
+        options: [
+          { id: '1', name: 'triangle', emoji: '🔺', correct: false },
+          { id: '2', name: 'circle', emoji: '⭕', correct: true },
+          { id: '3', name: 'square', emoji: '🟦', correct: false },
+        ],
+      },
+      {
+        text: 'Which has 3 SIDES?',
+        shape: 'triangle',
+        options: [
+          { id: '1', name: 'triangle', emoji: '🔺', correct: true },
+          { id: '2', name: 'square', emoji: '🟦', correct: false },
+          { id: '3', name: 'circle', emoji: '⭕', correct: false },
+        ],
+      },
+      {
+        text: 'Which has 4 SIDES?',
+        shape: 'square',
+        options: [
+          { id: '1', name: 'circle', emoji: '⭕', correct: false },
+          { id: '2', name: 'triangle', emoji: '🔺', correct: false },
+          { id: '3', name: 'square', emoji: '🟦', correct: true },
         ],
       },
     ],
     '5-6': [
       {
-        text: 'How many sides does a TRIANGLE have?',
-        target: 'triangle',
+        text: 'Find the STAR',
+        shape: 'star',
         options: [
-          { id: '1', name: '2', shape: 'triangle', correct: false },
-          { id: '2', name: '3', shape: 'triangle', correct: true },
-          { id: '3', name: '4', shape: 'triangle', correct: false },
+          { id: '1', name: 'star', emoji: '⭐', correct: true },
+          { id: '2', name: 'diamond', emoji: '💎', correct: false },
+          { id: '3', name: 'circle', emoji: '⭕', correct: false },
         ],
       },
       {
-        text: 'How many sides does a SQUARE have?',
-        target: 'square',
+        text: 'Find the DIAMOND',
+        shape: 'diamond',
         options: [
-          { id: '1', name: '3', shape: 'square', correct: false },
-          { id: '2', name: '4', shape: 'square', correct: true },
-          { id: '3', name: '5', shape: 'square', correct: false },
+          { id: '1', name: 'square', emoji: '🟦', correct: false },
+          { id: '2', name: 'diamond', emoji: '💎', correct: true },
+          { id: '3', name: 'triangle', emoji: '🔺', correct: false },
         ],
       },
       {
-        text: 'Find the CIRCLE',
-        target: 'circle',
+        text: 'Find the RECTANGLE',
+        shape: 'rectangle',
         options: [
-          { id: '1', name: 'circle', shape: 'circle', correct: true },
-          { id: '2', name: 'square', shape: 'square', correct: false },
-          { id: '3', name: 'triangle', shape: 'triangle', correct: false },
+          { id: '1', name: 'rectangle', emoji: '🟧', correct: true },
+          { id: '2', name: 'square', emoji: '🟦', correct: false },
+          { id: '3', name: 'circle', emoji: '⭕', correct: false },
+        ],
+      },
+      {
+        text: 'Find the OVAL',
+        shape: 'oval',
+        options: [
+          { id: '1', name: 'circle', emoji: '⭕', correct: false },
+          { id: '2', name: 'oval', emoji: '🥚', correct: true },
+          { id: '3', name: 'rectangle', emoji: '🟧', correct: false },
+        ],
+      },
+      {
+        text: 'Which is like a KITE?',
+        shape: 'diamond',
+        options: [
+          { id: '1', name: 'star', emoji: '⭐', correct: false },
+          { id: '2', name: 'diamond', emoji: '💎', correct: true },
+          { id: '3', name: 'triangle', emoji: '🔺', correct: false },
+        ],
+      },
+      {
+        text: 'Which is like an EGG?',
+        shape: 'oval',
+        options: [
+          { id: '1', name: 'oval', emoji: '🥚', correct: true },
+          { id: '2', name: 'circle', emoji: '⭕', correct: false },
+          { id: '3', name: 'square', emoji: '🟦', correct: false },
         ],
       },
     ],
     '7-8': [
       {
-        text: 'How many sides does a PENTAGON have?',
-        target: 'pentagon',
+        text: 'Find the PENTAGON (5 sides)',
+        shape: 'pentagon',
         options: [
-          { id: '1', name: '4', shape: 'square', correct: false },
-          { id: '2', name: '5', shape: 'triangle', correct: true },
-          { id: '3', name: '6', shape: 'triangle', correct: false },
+          { id: '1', name: 'hexagon', emoji: '⬡', correct: false },
+          { id: '2', name: 'pentagon', emoji: '⬠', correct: true },
+          { id: '3', name: 'diamond', emoji: '💎', correct: false },
         ],
       },
       {
-        text: 'How many sides does a TRIANGLE have?',
-        target: 'triangle',
+        text: 'Find the HEXAGON (6 sides)',
+        shape: 'hexagon',
         options: [
-          { id: '1', name: '3', shape: 'triangle', correct: true },
-          { id: '2', name: '4', shape: 'square', correct: false },
-          { id: '3', name: '5', shape: 'circle', correct: false },
+          { id: '1', name: 'pentagon', emoji: '⬠', correct: false },
+          { id: '2', name: 'star', emoji: '⭐', correct: false },
+          { id: '3', name: 'hexagon', emoji: '⬡', correct: true },
         ],
       },
       {
-        text: 'How many sides does a SQUARE have?',
-        target: 'square',
+        text: 'Which has 5 SIDES?',
+        shape: 'pentagon',
         options: [
-          { id: '1', name: '3', shape: 'triangle', correct: false },
-          { id: '2', name: '4', shape: 'square', correct: true },
-          { id: '3', name: '5', shape: 'pentagon', correct: false },
+          { id: '1', name: 'pentagon', emoji: '⬠', correct: true },
+          { id: '2', name: 'square', emoji: '🟦', correct: false },
+          { id: '3', name: 'hexagon', emoji: '⬡', correct: false },
+        ],
+      },
+      {
+        text: 'Which has 6 SIDES?',
+        shape: 'hexagon',
+        options: [
+          { id: '1', name: 'triangle', emoji: '🔺', correct: false },
+          { id: '2', name: 'hexagon', emoji: '⬡', correct: true },
+          { id: '3', name: 'pentagon', emoji: '⬠', correct: false },
+        ],
+      },
+      {
+        text: 'Which has NO corners?',
+        shape: 'circle',
+        options: [
+          { id: '1', name: 'circle', emoji: '⭕', correct: true },
+          { id: '2', name: 'square', emoji: '🟦', correct: false },
+          { id: '3', name: 'triangle', emoji: '🔺', correct: false },
+        ],
+      },
+      {
+        text: 'Which has 3 CORNERS?',
+        shape: 'triangle',
+        options: [
+          { id: '1', name: 'square', emoji: '🟦', correct: false },
+          { id: '2', name: 'pentagon', emoji: '⬠', correct: false },
+          { id: '3', name: 'triangle', emoji: '🔺', correct: true },
         ],
       },
     ],
   };
 
+  const [questionOrder] = useState(() => shuffleArray(questions[ageBand].map((_, i) => i)));
   const q = questions[ageBand][questionOrder[currentQuestion % questionOrder.length]];
-  const insets = useSafeAreaInsets();
 
-  const handleOptionPress = async (option: (typeof q.options)[0]) => {
-    const correct = option.correct;
+  useEffect(() => {
+    return speakQuestion(q.text);
+  }, [currentQuestion, speakQuestion, q.text]);
 
-    if (correct) {
-      // Success: Speak the shape name, play success animation
-      const celebrationMessages = [
-        `${option.name}! Yay!`,
-        `${option.name}! Yes!`,
-        `${option.name}! Nice!`,
-        `${option.name}! Awesome!`,
-        `${option.name}! Cool!`,
-        `${option.name}! Wow!`,
-      ];
-      const message = celebrationMessages[Math.floor(Math.random() * celebrationMessages.length)];
-      await Speech.speak(message, {
-        language: 'en',
-        pitch: 1.65, // Very playful!
-        rate: 0.95, // Fun and energetic
-      });
-
-      // Success animation - spring up
-      Animated.sequence([
-        Animated.spring(scaleAnim, {
-          toValue: 1.15,
-          friction: 4,
-          tension: 40,
-          useNativeDriver: true,
-        }),
-        Animated.timing(scaleAnim, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-      ]).start();
-
-      setTimeout(() => {
-        onCorrect();
-        setCurrentQuestion((prev) => prev + 1);
-      }, 600);
+  const handleOptionPress = async (option: ShapeOption) => {
+    if (option.correct) {
+      await handleCorrectAnswer(option.name, onCorrect, () => setCurrentQuestion((p) => p + 1));
     } else {
-      // Wrong answer: Speak the option name, then encourage to try again
-      const tryAgainMessages = [
-        `That's ${option.name}. Try again!`,
-        `Nope! That's ${option.name}. Go!`,
-        `That's ${option.name}. You got this!`,
-        `Oops! That's ${option.name}. Try once more!`,
-        `That one's ${option.name}. Keep going!`,
-      ];
-      const message = tryAgainMessages[Math.floor(Math.random() * tryAgainMessages.length)];
-      await Speech.speak(message, {
-        language: 'en',
-        pitch: 1.45, // Happy encouragement
-        rate: 0.9, // Upbeat
-      });
-
-      // Error animation - shake
-      Animated.sequence([
-        Animated.timing(scaleAnim, {
-          toValue: 0.95,
-          duration: 100,
-          useNativeDriver: true,
-        }),
-        Animated.timing(scaleAnim, {
-          toValue: 1.05,
-          duration: 100,
-          useNativeDriver: true,
-        }),
-        Animated.timing(scaleAnim, {
-          toValue: 0.95,
-          duration: 100,
-          useNativeDriver: true,
-        }),
-        Animated.timing(scaleAnim, {
-          toValue: 1,
-          duration: 100,
-          useNativeDriver: true,
-        }),
-      ]).start();
-
-      setTimeout(() => {
-        onWrong();
-      }, 400);
+      await handleWrongAnswer(option.name, onWrong);
     }
   };
-
-  const ShapeComponent = ({ shape }: { shape: string }) => {
-    const size = 80;
-    switch (shape) {
-      case 'circle':
-        return (
-          <Svg width={size} height={size} viewBox="0 0 100 100">
-            <Circle cx="50" cy="50" r="40" fill="#4D96FF" />
-          </Svg>
-        );
-      case 'square':
-        return (
-          <Svg width={size} height={size} viewBox="0 0 100 100">
-            <Rect x="20" y="20" width="60" height="60" fill="#FFD93D" />
-          </Svg>
-        );
-      case 'triangle':
-        return (
-          <Svg width={size} height={size} viewBox="0 0 100 100">
-            <Polygon points="50,20 80,80 20,80" fill="#FF6B6B" />
-          </Svg>
-        );
-      case 'pentagon':
-        return (
-          <Svg width={size} height={size} viewBox="0 0 100 100">
-            <Polygon points="50,15 90,35 75,85 25,85 10,35" fill="#9B59B6" />
-          </Svg>
-        );
-      default:
-        return null;
-    }
-  };
-
-  const styles = StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: '#FFF9E6',
-      paddingHorizontal: 24,
-      paddingTop: insets.top + 16,
-      paddingBottom: 32,
-      justifyContent: 'center',
-      alignItems: 'center',
-    },
-    headerSection: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 12,
-      marginBottom: 32,
-      width: '100%',
-      justifyContent: 'center',
-    },
-    questionText: {
-      fontSize: 32,
-      fontWeight: '900',
-      color: '#1a1a1a',
-      flex: 1,
-      textAlign: 'center',
-    },
-    voiceButton: {
-      paddingVertical: 12,
-      paddingHorizontal: 12,
-    },
-    optionsContainer: {
-      width: '100%',
-      gap: 16,
-    },
-    optionButton: {
-      paddingVertical: 24,
-      paddingHorizontal: 16,
-      borderRadius: 20,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: '#F3F4F6',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.1,
-      shadowRadius: 8,
-      elevation: 4,
-    },
-    optionLabel: {
-      fontSize: 18,
-      fontWeight: '700',
-      color: '#1a1a1a',
-      marginTop: 12,
-      textTransform: 'uppercase',
-    },
-  });
 
   return (
-    <View style={styles.container}>
+    <View
+      style={[styles.container, { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 16 }]}
+    >
       <View style={styles.headerSection}>
         <Text style={styles.questionText}>{q.text}</Text>
         <VoiceButton text={q.text} style={styles.voiceButton} />
       </View>
+
+      <View style={styles.illustration}>
+        <ShapeIllustration shape={q.shape} />
+      </View>
+
       <View style={styles.optionsContainer}>
         {q.options.map((option) => (
-          <Animated.View
-            key={option.id}
-            style={{ transform: [{ scale: scaleAnim }] }}
-          >
+          <Animated.View key={option.id} style={{ transform: [{ scale: scaleAnim }] }}>
             <TouchableOpacity
               onPress={() => handleOptionPress(option)}
               style={styles.optionButton}
               activeOpacity={0.7}
+              accessibilityLabel={option.name}
             >
-              <ShapeComponent shape={option.shape} />
+              <Text style={styles.optionEmoji}>{option.emoji}</Text>
               <Text style={styles.optionLabel}>{option.name}</Text>
             </TouchableOpacity>
           </Animated.View>
@@ -335,5 +390,60 @@ export const ShapesGame: React.FC<ShapesGameProps> = ({
     </View>
   );
 };
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#F0F8FF',
+    paddingHorizontal: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 24,
+    width: '100%',
+    justifyContent: 'center',
+  },
+  questionText: {
+    fontSize: 30,
+    fontWeight: '900',
+    color: '#1a1a1a',
+    textAlign: 'center',
+    flex: 1,
+  },
+  voiceButton: { paddingVertical: 12, paddingHorizontal: 12 },
+  illustration: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 32,
+    minHeight: 130,
+  },
+  optionsContainer: { width: '100%', gap: 14 },
+  optionButton: {
+    paddingVertical: 22,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 3,
+    borderColor: '#E0E0E0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  optionEmoji: { fontSize: 40, marginBottom: 6 },
+  optionLabel: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#333',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+});
 
 export default ShapesGame;

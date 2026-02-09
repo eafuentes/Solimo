@@ -2,14 +2,14 @@
   "expo": {
     "name": "Solimo",
     "slug": "solimo",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "sdkVersion": "54.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon-app-1024.png",
     "userInterfaceStyle": "light",
     "description": "Solimo - A delightful micro-learning app for kids 3-8 with one engaging activity per day. Voice-accessible, beautifully animated, and designed for parents who want screen time to actually matter.",
     "splash": {
-      "image": "./assets/icon-app-1024.png",
+      "image": "./assets/splash.png",
       "resizeMode": "contain",
       "backgroundColor": "#FFF9E6"
     },
@@ -23,25 +23,16 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/icon-app-1024.svg",
+        "foregroundImage": "./assets/icon-app-1024.png",
         "backgroundColor": "#FFF9E6"
       },
       "package": "com.solimo.app",
       "versionCode": 1,
-      "permissions": [
-        "android.permission.RECORD_AUDIO",
-        "android.permission.MODIFY_AUDIO_SETTINGS"
-      ]
+      "permissions": ["android.permission.RECORD_AUDIO", "android.permission.MODIFY_AUDIO_SETTINGS"]
     },
     "scheme": "solimo",
-    "platforms": [
-      "ios",
-      "android",
-      "web"
-    ],
-    "plugins": [
-      "expo-audio"
-    ],
+    "platforms": ["ios", "android", "web"],
+    "plugins": ["expo-audio"],
     "owner": "fuentes-studio",
     "extra": {
       "eas": {

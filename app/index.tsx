@@ -1,9 +1,26 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { View, Text, TouchableOpacity, useWindowDimensions, StyleSheet, AppState, ScrollView } from 'react-native';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  useWindowDimensions,
+  StyleSheet,
+  AppState,
+  ScrollView,
+  Animated,
+  ActivityIndicator,
+} from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { isCompletedToday, getAgeBand, setAgeBand, isSoundEnabled, getCompletedDate } from '../src/lib/storage';
+import {
+  isCompletedToday,
+  getAgeBand,
+  setAgeBand,
+  isSoundEnabled,
+  getStreak,
+  isOnboardingDone,
+} from '../src/lib/storage';
 import { getTodaysActivityId, getActivityName } from '../src/lib/schedule';
 import { ParentCornerModal } from '../src/components/ParentCornerModal';
 import { AgeBand } from '../src/types';
@@ -11,15 +28,43 @@ import * as Icons from '../src/components/icons';
 import { VoiceButton } from '../src/components/VoiceButton';
 import * as Speech from 'expo-speech';
 
+/** Get time-appropriate greeting with emoji — child psychology: familiarity with routine */
+function getTimeGreeting(): { text: string; emoji: string } {
+  const hour = new Date().getHours();
+  if (hour < 12) return { text: 'Good morning', emoji: '🌅' };
+  if (hour < 17) return { text: 'Good afternoon', emoji: '☀️' };
+  return { text: 'Good evening', emoji: '🌙' };
+}
+
+/** Activity-specific hints so kids know what to expect before starting */
+function getActivityHint(id: string): string {
+  const hints: Record<string, string> = {
+    colors: 'Discover beautiful colors! 🎨',
+    shapes: 'Find and learn about shapes! 🔷',
+    numbers: 'Count, add, and have fun! 🔢',
+    patterns: 'Spot the pattern and guess! 🧩',
+    memory: 'Match pairs and train your brain! 🧠',
+    sorting: 'Group things that belong together! 📦',
+    logic: 'Think and solve fun puzzles! 💡',
+  };
+  return hints[id] || 'Short, fun, and easy to finish!';
+}
+
 /**
- * Home Screen
- * Shows today's activity with completion status
- * Large primary button to start
- * Parent corner access (lock icon + 2 second press)
+ * Home Screen — the child's daily landing page
+ *
+ * Design principles (child development & UX):
+ * - Large, tappable hero card → reduces friction for young children
+ * - Subtle pulse animation → draws attention without overwhelming
+ * - Time-of-day greeting → builds routine (important for 3-8 year olds)
+ * - Positive reinforcement → streak badges and completion celebrations
+ * - Voice-first → pre-readers can navigate independently
+ * - Single daily activity → prevents decision fatigue (Hick's Law for kids)
+ * - Free Play always accessible → autonomy for motivated learners
  */
 export default function HomeScreen() {
   const router = useRouter();
-  const { width, height } = useWindowDimensions();
+  const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [completed, setCompleted] = useState(false);
   const [activityId, setActivityId] = useState<string>('');
@@ -31,57 +76,50 @@ export default function HomeScreen() {
   const [soundEnabled, setSoundEnabledState] = useState(true);
   const [dailyStreak, setDailyStreak] = useState(0);
   const hasWelcomedRef = useRef(false);
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const fadeInAnim = useRef(new Animated.Value(0)).current;
 
-  const calculateStreak = useCallback(async () => {
-    const completedDate = await getCompletedDate();
-    if (!completedDate) {
-      setDailyStreak(0);
-      return;
-    }
+  // ── Data Loading ──────────────────────────────────────────────
 
-    const today = new Date();
-    const completed = new Date(completedDate);
-
-    const daysDiff = Math.floor((today.getTime() - completed.getTime()) / (1000 * 60 * 60 * 24));
-    if (daysDiff === 0) {
-      setDailyStreak(1);
-    } else if (daysDiff === 1) {
-      setDailyStreak(1);
-    } else {
-      setDailyStreak(0);
-    }
+  const loadStreak = useCallback(async () => {
+    const streak = await getStreak();
+    setDailyStreak(streak);
   }, []);
 
   const loadHome = useCallback(
     async (showLoading: boolean) => {
       if (showLoading) setIsLoading(true);
 
+      // Redirect first-time users to onboarding
+      const onboarded = await isOnboardingDone();
+      if (!onboarded) {
+        router.replace('/onboarding');
+        return;
+      }
+
       const today = getTodaysActivityId();
       setActivityId(today);
       setActivityName(getActivityName(today));
 
-      const completedToday = await isCompletedToday();
+      const [completedToday, userAgeBand, sound] = await Promise.all([
+        isCompletedToday(),
+        getAgeBand(),
+        isSoundEnabled(),
+      ]);
       setCompleted(completedToday);
-
-      const userAgeBand = await getAgeBand();
       setCurrentAgeBand(userAgeBand);
-
-      const sound = await isSoundEnabled();
       setSoundEnabledState(sound);
 
-      await calculateStreak();
-
+      await loadStreak();
       if (showLoading) setIsLoading(false);
     },
-    [calculateStreak]
+    [loadStreak]
   );
 
-  // Load today's activity and completion status (initial load)
   useEffect(() => {
     loadHome(true);
   }, [loadHome]);
 
-  // Refresh when returning to the home screen
   useFocusEffect(
     useCallback(() => {
       loadHome(false);
@@ -89,27 +127,53 @@ export default function HomeScreen() {
   );
 
   useEffect(() => {
-    const subscription = AppState.addEventListener('change', (state) => {
-      if (state === 'active') {
-        loadHome(false);
-      }
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s === 'active') loadHome(false);
     });
-
-    return () => subscription.remove();
+    return () => sub.remove();
   }, [loadHome]);
+
+  // ── Animations ────────────────────────────────────────────────
+
+  // Gentle pulse on hero card invites kids to tap
+  useEffect(() => {
+    if (isLoading || completed) return;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1.03, duration: 1200, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 1200, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [isLoading, completed, pulseAnim]);
+
+  // Fade in content after loading for a polished feel
+  useEffect(() => {
+    if (!isLoading) {
+      Animated.timing(fadeInAnim, {
+        toValue: 1,
+        duration: 400,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [isLoading, fadeInAnim]);
+
+  // ── Voice Welcome ─────────────────────────────────────────────
 
   useEffect(() => {
     if (isLoading || !soundEnabled || hasWelcomedRef.current || !activityName) return;
     hasWelcomedRef.current = true;
-    const message = `Hi there! Today's adventure is ${activityName}. Ready to play?`;
-    Speech.speak(message, {
+    const { text: greeting } = getTimeGreeting();
+    Speech.speak(`${greeting}! Today's adventure is ${activityName}. Tap to play!`, {
       language: 'en',
-      pitch: 1.4,
-      rate: 0.85,
+      pitch: 1.18,
+      rate: 0.92,
     });
   }, [isLoading, soundEnabled, activityName]);
 
-  // Icon map for activities
+  // ── Handlers ──────────────────────────────────────────────────
+
   const iconMap: Record<string, React.FC<any>> = {
     colors: Icons.ColorIcon,
     shapes: Icons.ShapeIcon,
@@ -124,10 +188,7 @@ export default function HomeScreen() {
   const iconSize = Math.min(width - 64, 200);
 
   const handleStartPress = () => {
-    router.push({
-      pathname: '/activity',
-      params: { activityId },
-    });
+    router.push({ pathname: '/activity', params: { activityId } });
   };
 
   const handlePlaygroundPress = () => {
@@ -138,10 +199,11 @@ export default function HomeScreen() {
     const messages = [
       "You're doing great! Ready to learn?",
       "Let's have some fun learning today!",
-      "One bright activity, plenty of fun!",
-      "Ready for an adventure?",
-      "Learning is fun with Solimo!",
+      'One bright activity, plenty of fun!',
+      'Ready for an adventure?',
       "Let's make learning magical!",
+      "Today's going to be awesome!",
+      'Every day is a new adventure!',
     ];
     return messages[Math.floor(Math.random() * messages.length)];
   };
@@ -152,9 +214,7 @@ export default function HomeScreen() {
     setShowAgeSelector(false);
   };
 
-  const handleSettingsPress = () => {
-    setParentCornerVisible(true);
-  };
+  // ── Styles ────────────────────────────────────────────────────
 
   const styles = StyleSheet.create({
     container: {
@@ -165,33 +225,31 @@ export default function HomeScreen() {
     topSection: {
       paddingTop: 8,
       paddingRight: 16,
-      paddingBottom: 12,
+      paddingBottom: 8,
     },
     settingsButton: {
       padding: 12,
       borderRadius: 50,
       backgroundColor: 'rgba(255, 255, 255, 0.7)',
     },
-    mainContent: {
-      flex: 1,
-    },
+    mainContent: { flex: 1 },
     mainContentScroll: {
       paddingHorizontal: 24,
-      paddingVertical: 32,
+      paddingVertical: 24,
       alignItems: 'center',
     },
     heroTitle: {
-      fontSize: 36,
+      fontSize: 34,
       fontWeight: '900',
       color: '#1a1a1a',
       textAlign: 'center',
-      marginBottom: 6,
+      marginBottom: 4,
     },
     heroSubtitle: {
-      fontSize: 16,
+      fontSize: 15,
       color: '#666',
       textAlign: 'center',
-      marginBottom: 24,
+      marginBottom: 20,
     },
     streakBadge: {
       backgroundColor: '#FEF08A',
@@ -203,11 +261,7 @@ export default function HomeScreen() {
       alignItems: 'center',
       gap: 6,
     },
-    streakText: {
-      fontSize: 14,
-      fontWeight: '700',
-      color: '#92400E',
-    },
+    streakText: { fontSize: 14, fontWeight: '700', color: '#92400E' },
     activityCard: {
       width: '100%',
       backgroundColor: '#FFFFFF',
@@ -219,7 +273,7 @@ export default function HomeScreen() {
       shadowOpacity: 0.12,
       shadowRadius: 16,
       elevation: 10,
-      marginBottom: 24,
+      marginBottom: 20,
     },
     activityBadge: {
       backgroundColor: '#E0F2FE',
@@ -255,69 +309,51 @@ export default function HomeScreen() {
       marginTop: 6,
       textAlign: 'center',
     },
+    tapIndicator: {
+      marginTop: 16,
+      backgroundColor: '#FFD93D',
+      paddingVertical: 10,
+      paddingHorizontal: 24,
+      borderRadius: 20,
+    },
+    tapIndicatorText: {
+      fontSize: 16,
+      fontWeight: '800',
+      color: '#1a1a1a',
+    },
+    tapIndicatorCompleted: {
+      marginTop: 12,
+    },
+    tapIndicatorCompletedText: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: '#888',
+    },
     voiceRow: {
       marginTop: 12,
       flexDirection: 'row',
       alignItems: 'center',
       gap: 8,
     },
-    voiceRowText: {
-      fontSize: 12,
-      color: '#666',
-      fontWeight: '600',
-    },
-    subtitle: {
-      fontSize: 16,
-      color: '#666',
-      textAlign: 'center',
-      marginBottom: 32,
-      marginTop: 8,
-    },
-    startButton: {
-      backgroundColor: '#FFD93D',
-      paddingHorizontal: 48,
-      paddingVertical: 24,
-      borderRadius: 40,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 12 },
-      shadowOpacity: 0.2,
-      shadowRadius: 20,
-      elevation: 16,
-      minWidth: Math.min(width - 48, 300),
-    },
-    startButtonText: {
-      fontSize: 32,
-      fontWeight: '900',
-      color: '#1a1a1a',
-      textAlign: 'center',
-      letterSpacing: 0.5,
-    },
+    voiceRowText: { fontSize: 12, color: '#666', fontWeight: '600' },
     completedContainer: {
       backgroundColor: '#A8E6CF',
-      paddingHorizontal: 48,
-      paddingVertical: 24,
-      borderRadius: 40,
-      borderWidth: 4,
+      paddingHorizontal: 32,
+      paddingVertical: 14,
+      borderRadius: 24,
+      borderWidth: 3,
       borderColor: '#5FD3B0',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 12 },
-      shadowOpacity: 0.15,
-      shadowRadius: 20,
-      elevation: 12,
-      marginBottom: 24,
+      marginBottom: 16,
     },
     completedText: {
-      fontSize: 28,
+      fontSize: 20,
       fontWeight: '800',
       color: '#2d6a4f',
       textAlign: 'center',
     },
-    completedButtonsContainer: {
-      gap: 12,
-    },
     playgroundButton: {
       backgroundColor: '#3B82F6',
-      paddingVertical: 16,
+      paddingVertical: 18,
       paddingHorizontal: 32,
       borderRadius: 30,
       shadowColor: '#3B82F6',
@@ -325,9 +361,11 @@ export default function HomeScreen() {
       shadowOpacity: 0.3,
       shadowRadius: 12,
       elevation: 8,
+      marginBottom: 8,
+      minWidth: Math.min(width - 48, 280),
     },
     playgroundButtonText: {
-      fontSize: 18,
+      fontSize: 20,
       fontWeight: '700',
       color: 'white',
       textAlign: 'center',
@@ -336,10 +374,10 @@ export default function HomeScreen() {
       fontSize: 14,
       color: '#888',
       textAlign: 'center',
-      marginTop: 24,
+      marginTop: 20,
     },
     ageSelectorButton: {
-      marginTop: 32,
+      marginTop: 24,
       paddingVertical: 12,
       paddingHorizontal: 20,
       backgroundColor: '#E0F2FE',
@@ -366,11 +404,6 @@ export default function HomeScreen() {
       padding: 32,
       width: '100%',
       maxHeight: '80%',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 8 },
-      shadowOpacity: 0.2,
-      shadowRadius: 20,
-      elevation: 20,
     },
     ageModalTitle: {
       fontSize: 36,
@@ -379,13 +412,7 @@ export default function HomeScreen() {
       marginBottom: 24,
       textAlign: 'center',
     },
-    ageOptionsScroll: {
-      width: '100%',
-    },
-    ageOptionsContainer: {
-      gap: 14,
-      paddingBottom: 8,
-    },
+    ageOptionsContainer: { gap: 14, paddingBottom: 8 },
     ageOption: {
       paddingVertical: 18,
       paddingHorizontal: 24,
@@ -394,136 +421,132 @@ export default function HomeScreen() {
       justifyContent: 'center',
       alignItems: 'center',
     },
-    ageOptionActive: {
-      backgroundColor: '#FFD93D',
-      borderColor: '#F59E0B',
-    },
-    ageOptionInactive: {
-      backgroundColor: '#F3F4F6',
-      borderColor: '#D1D5DB',
-    },
-    ageOptionText: {
-      fontSize: 24,
-      fontWeight: '800',
-      color: '#1a1a1a',
-    },
+    ageOptionActive: { backgroundColor: '#FFD93D', borderColor: '#F59E0B' },
+    ageOptionInactive: { backgroundColor: '#F3F4F6', borderColor: '#D1D5DB' },
+    ageOptionText: { fontSize: 24, fontWeight: '800', color: '#1a1a1a' },
   });
+
+  // ── Render ────────────────────────────────────────────────────
 
   if (isLoading) {
     return (
-      <View style={styles.container}>
-        <View style={styles.mainContent}>
-          <Text style={{ fontSize: 20, color: '#666' }}>Loading Solimo...</Text>
-        </View>
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <Text style={{ fontSize: 48, marginBottom: 16 }}>✨</Text>
+        <ActivityIndicator size="large" color="#FFD93D" />
+        <Text style={{ fontSize: 18, color: '#888', marginTop: 12 }}>Getting ready...</Text>
       </View>
     );
   }
 
+  const greeting = getTimeGreeting();
+
   return (
     <View style={styles.container}>
-      {/* Top section with settings icon */}
+      {/* Settings button */}
       <View style={styles.topSection}>
         <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
           <TouchableOpacity
-            onPress={handleSettingsPress}
+            onPress={() => setParentCornerVisible(true)}
             style={styles.settingsButton}
             activeOpacity={0.6}
+            accessibilityLabel="Parent settings"
+            accessibilityRole="button"
           >
             <Text style={{ fontSize: 28 }}>⚙️</Text>
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* Main content */}
-      <ScrollView
-        style={styles.mainContent}
-        contentContainerStyle={styles.mainContentScroll}
-        showsVerticalScrollIndicator={false}
-      >
-        <Text style={styles.heroTitle}>Good day!</Text>
-        <Text style={styles.heroSubtitle}>{getEncouragingMessage()}</Text>
+      {/* Main scrollable content */}
+      <Animated.View style={{ flex: 1, opacity: fadeInAnim }}>
+        <ScrollView
+          style={styles.mainContent}
+          contentContainerStyle={styles.mainContentScroll}
+          showsVerticalScrollIndicator={false}
+        >
+          <Text style={styles.heroTitle}>
+            {greeting.emoji} {greeting.text}!
+          </Text>
+          <Text style={styles.heroSubtitle}>{getEncouragingMessage()}</Text>
 
-        {/* Daily Streak Badge */}
-        {dailyStreak > 0 && (
-          <View style={styles.streakBadge}>
-            <Text>🔥</Text>
-            <Text style={styles.streakText}>Streak: {dailyStreak} day</Text>
-          </View>
-        )}
-
-        {/* Activity icon */}
-        <View style={styles.activityCard}>
-          <View style={styles.activityBadge}>
-            <Text style={styles.activityBadgeText}>TODAY’S ADVENTURE</Text>
-          </View>
-          {IconComponent && (
-            <View style={styles.iconContainer}>
-              <IconComponent size={iconSize} />
+          {dailyStreak > 0 && (
+            <View style={styles.streakBadge}>
+              <Text>🔥</Text>
+              <Text style={styles.streakText}>
+                Streak: {dailyStreak} day{dailyStreak > 1 ? 's' : ''}
+              </Text>
             </View>
           )}
 
-          {/* Activity name */}
-          <Text style={styles.activityName}>
-            {activityName.charAt(0).toUpperCase() + activityName.slice(1)}
-          </Text>
-          <Text style={styles.activityHint}>Short, fun, and easy to finish.</Text>
-
-          {/* Voice replay */}
-          <View style={styles.voiceRow}>
-            <VoiceButton text={`Today's adventure is ${activityName}. Ready to play?`} />
-            <Text style={styles.voiceRowText}>Tap to hear</Text>
-          </View>
-        </View>
-
-        {/* Completion status or start button */}
-        {completed ? (
-          <View>
-            <View style={styles.completedContainer}>
-              <Text style={styles.completedText}>✨ Completed</Text>
-            </View>
-            <View style={styles.completedButtonsContainer}>
-              <TouchableOpacity
-                onPress={handleStartPress}
-                style={styles.startButton}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.startButtonText}>Play Again</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={handlePlaygroundPress}
-                style={styles.playgroundButton}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.playgroundButtonText}>🎮 Go to Playground</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        ) : (
+          {/* ✨ Hero Card — tappable! Kids can tap the icon to start playing */}
           <TouchableOpacity
             onPress={handleStartPress}
-            style={styles.startButton}
+            activeOpacity={0.85}
+            style={{ width: '100%' }}
+            accessibilityLabel={`Play ${activityName}`}
+            accessibilityRole="button"
+          >
+            <Animated.View
+              style={[styles.activityCard, !completed && { transform: [{ scale: pulseAnim }] }]}
+            >
+              <View style={styles.activityBadge}>
+                <Text style={styles.activityBadgeText}>
+                  {completed ? '✅ COMPLETED' : "TODAY'S ADVENTURE"}
+                </Text>
+              </View>
+              {IconComponent && (
+                <View style={styles.iconContainer}>
+                  <IconComponent size={iconSize} />
+                </View>
+              )}
+              <Text style={styles.activityName}>
+                {activityName.charAt(0).toUpperCase() + activityName.slice(1)}
+              </Text>
+              <Text style={styles.activityHint}>{getActivityHint(activityId)}</Text>
+
+              {!completed ? (
+                <View style={styles.tapIndicator}>
+                  <Text style={styles.tapIndicatorText}>👆 Tap to play!</Text>
+                </View>
+              ) : (
+                <View style={styles.tapIndicatorCompleted}>
+                  <Text style={styles.tapIndicatorCompletedText}>Tap to play again</Text>
+                </View>
+              )}
+
+              <View style={styles.voiceRow}>
+                <VoiceButton text={`Today's adventure is ${activityName}. Tap to play!`} />
+                <Text style={styles.voiceRowText}>Tap to hear</Text>
+              </View>
+            </Animated.View>
+          </TouchableOpacity>
+
+          {completed && (
+            <View style={styles.completedContainer}>
+              <Text style={styles.completedText}>✨ Great job today!</Text>
+            </View>
+          )}
+
+          {/* Playground — always visible for free practice */}
+          <TouchableOpacity
+            onPress={handlePlaygroundPress}
+            style={styles.playgroundButton}
             activeOpacity={0.8}
           >
-            <Text style={styles.startButtonText}>Start Today</Text>
+            <Text style={styles.playgroundButtonText}>🎮 Free Play</Text>
           </TouchableOpacity>
-        )}
 
-        {/* Description text */}
-        <Text style={styles.descriptionText}>
-          One bright activity per day
-        </Text>
+          <Text style={styles.descriptionText}>One bright activity per day ✨</Text>
 
-        {/* Age selector button */}
-        <TouchableOpacity
-          onPress={() => setShowAgeSelector(true)}
-          style={styles.ageSelectorButton}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.ageSelectorButtonText}>
-            👧 I'm {currentAgeBand} years old
-          </Text>
-        </TouchableOpacity>
-      </ScrollView>
+          <TouchableOpacity
+            onPress={() => setShowAgeSelector(true)}
+            style={styles.ageSelectorButton}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.ageSelectorButtonText}>👧 I'm {currentAgeBand} years old</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </Animated.View>
 
       {/* Age selector modal */}
       {showAgeSelector && (
@@ -535,20 +558,14 @@ export default function HomeScreen() {
           <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()}>
             <View style={styles.ageModalContent}>
               <Text style={styles.ageModalTitle}>How old are you?</Text>
-              <ScrollView
-                style={styles.ageOptionsScroll}
-                contentContainerStyle={styles.ageOptionsContainer}
-                showsVerticalScrollIndicator={false}
-              >
+              <ScrollView contentContainerStyle={styles.ageOptionsContainer}>
                 {(['3-4', '5-6', '7-8'] as AgeBand[]).map((band) => (
                   <TouchableOpacity
                     key={band}
                     onPress={() => handleAgeBandChange(band)}
                     style={[
                       styles.ageOption,
-                      currentAgeBand === band
-                        ? styles.ageOptionActive
-                        : styles.ageOptionInactive,
+                      currentAgeBand === band ? styles.ageOptionActive : styles.ageOptionInactive,
                     ]}
                     activeOpacity={0.7}
                   >
@@ -561,12 +578,10 @@ export default function HomeScreen() {
         </TouchableOpacity>
       )}
 
-      {/* Parent corner modal */}
       <ParentCornerModal
         visible={parentCornerVisible}
         onClose={() => {
           setParentCornerVisible(false);
-          // Refresh home data after modal closes
           loadHome(false);
         }}
       />
