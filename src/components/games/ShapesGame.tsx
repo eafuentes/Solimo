@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Rect, Polygon, Ellipse } from 'react-native-svg';
 import { AgeBand } from '../../types';
 import { VoiceButton } from '../VoiceButton';
-import { shuffleArray } from '../../lib/gameUtils';
+import { getSessionQuestionOrder, seededShuffle } from '../../lib/gameUtils';
 import { useGameFeedback } from '../../hooks/useGameFeedback';
 
 interface ShapeOption {
@@ -17,6 +17,7 @@ interface ShapeOption {
 interface ShapesGameProps {
   ageBand: AgeBand;
   difficulty: 1 | 2 | 3;
+  sessionRound?: number;
   onCorrect: () => void;
   onWrong: () => void;
 }
@@ -160,20 +161,11 @@ function ShapeIllustration({ shape }: { shape: string }) {
  * - Auto-spoken questions for pre-readers
  * - Positive reinforcement on every attempt
  */
-export const ShapesGame: React.FC<ShapesGameProps> = ({
-  ageBand,
-  difficulty,
-  onCorrect,
-  onWrong,
-}) => {
-  const insets = useSafeAreaInsets();
-  const [currentQuestion, setCurrentQuestion] = useState(0);
-  const { scaleAnim, speakQuestion, handleCorrectAnswer, handleWrongAnswer } = useGameFeedback();
-
-  const questions: Record<
-    AgeBand,
-    Array<{ text: string; shape: string; options: ShapeOption[] }>
-  > = {
+/** Static question bank — defined at module scope to avoid re-creation on every render */
+const QUESTIONS: Record<
+  AgeBand,
+  Array<{ text: string; shape: string; options: ShapeOption[] }>
+> = {
     '3-4': [
       {
         text: 'Find the CIRCLE',
@@ -227,6 +219,60 @@ export const ShapesGame: React.FC<ShapesGameProps> = ({
           { id: '1', name: 'circle', emoji: '⭕', correct: false },
           { id: '2', name: 'triangle', emoji: '🔺', correct: false },
           { id: '3', name: 'square', emoji: '🟦', correct: true },
+        ],
+      },
+      {
+        text: 'Find the STAR',
+        shape: 'star',
+        options: [
+          { id: '1', name: 'star', emoji: '⭐', correct: true },
+          { id: '2', name: 'circle', emoji: '⭕', correct: false },
+          { id: '3', name: 'square', emoji: '🟦', correct: false },
+        ],
+      },
+      {
+        text: 'Which is like a BALL?',
+        shape: 'circle',
+        options: [
+          { id: '1', name: 'square', emoji: '🟦', correct: false },
+          { id: '2', name: 'circle', emoji: '⭕', correct: true },
+          { id: '3', name: 'triangle', emoji: '🔺', correct: false },
+        ],
+      },
+      {
+        text: 'Which is like a ROOF?',
+        shape: 'triangle',
+        options: [
+          { id: '1', name: 'triangle', emoji: '🔺', correct: true },
+          { id: '2', name: 'circle', emoji: '⭕', correct: false },
+          { id: '3', name: 'square', emoji: '🟦', correct: false },
+        ],
+      },
+      {
+        text: 'Which is like a BOX?',
+        shape: 'square',
+        options: [
+          { id: '1', name: 'circle', emoji: '⭕', correct: false },
+          { id: '2', name: 'square', emoji: '🟦', correct: true },
+          { id: '3', name: 'triangle', emoji: '🔺', correct: false },
+        ],
+      },
+      {
+        text: 'Which has NO sides?',
+        shape: 'circle',
+        options: [
+          { id: '1', name: 'triangle', emoji: '🔺', correct: false },
+          { id: '2', name: 'square', emoji: '🟦', correct: false },
+          { id: '3', name: 'circle', emoji: '⭕', correct: true },
+        ],
+      },
+      {
+        text: 'Which looks like a PIZZA slice?',
+        shape: 'triangle',
+        options: [
+          { id: '1', name: 'square', emoji: '🟦', correct: false },
+          { id: '2', name: 'triangle', emoji: '🔺', correct: true },
+          { id: '3', name: 'circle', emoji: '⭕', correct: false },
         ],
       },
     ],
@@ -285,6 +331,60 @@ export const ShapesGame: React.FC<ShapesGameProps> = ({
           { id: '3', name: 'square', emoji: '🟦', correct: false },
         ],
       },
+      {
+        text: 'Which is like a MIRROR?',
+        shape: 'rectangle',
+        options: [
+          { id: '1', name: 'rectangle', emoji: '🟧', correct: true },
+          { id: '2', name: 'triangle', emoji: '🔺', correct: false },
+          { id: '3', name: 'circle', emoji: '⭕', correct: false },
+        ],
+      },
+      {
+        text: 'Which has 5 POINTS?',
+        shape: 'star',
+        options: [
+          { id: '1', name: 'diamond', emoji: '💎', correct: false },
+          { id: '2', name: 'star', emoji: '⭐', correct: true },
+          { id: '3', name: 'square', emoji: '🟦', correct: false },
+        ],
+      },
+      {
+        text: 'Which is like a WINDOW?',
+        shape: 'square',
+        options: [
+          { id: '1', name: 'square', emoji: '🟦', correct: true },
+          { id: '2', name: 'triangle', emoji: '🔺', correct: false },
+          { id: '3', name: 'star', emoji: '⭐', correct: false },
+        ],
+      },
+      {
+        text: 'Which has 4 CORNERS?',
+        shape: 'rectangle',
+        options: [
+          { id: '1', name: 'triangle', emoji: '🔺', correct: false },
+          { id: '2', name: 'rectangle', emoji: '🟧', correct: true },
+          { id: '3', name: 'circle', emoji: '⭕', correct: false },
+        ],
+      },
+      {
+        text: 'Find the CIRCLE',
+        shape: 'circle',
+        options: [
+          { id: '1', name: 'circle', emoji: '⭕', correct: true },
+          { id: '2', name: 'oval', emoji: '🥚', correct: false },
+          { id: '3', name: 'diamond', emoji: '💎', correct: false },
+        ],
+      },
+      {
+        text: 'Find the TRIANGLE',
+        shape: 'triangle',
+        options: [
+          { id: '1', name: 'star', emoji: '⭐', correct: false },
+          { id: '2', name: 'diamond', emoji: '💎', correct: false },
+          { id: '3', name: 'triangle', emoji: '🔺', correct: true },
+        ],
+      },
     ],
     '7-8': [
       {
@@ -341,21 +441,272 @@ export const ShapesGame: React.FC<ShapesGameProps> = ({
           { id: '3', name: 'triangle', emoji: '🔺', correct: true },
         ],
       },
+      {
+        text: 'Which has MORE sides: pentagon or hexagon?',
+        shape: 'hexagon',
+        options: [
+          { id: '1', name: 'hexagon', emoji: '⬡', correct: true },
+          { id: '2', name: 'pentagon', emoji: '⬠', correct: false },
+          { id: '3', name: 'square', emoji: '🟦', correct: false },
+        ],
+      },
+      {
+        text: 'Which has 4 EQUAL sides?',
+        shape: 'square',
+        options: [
+          { id: '1', name: 'rectangle', emoji: '🟧', correct: false },
+          { id: '2', name: 'square', emoji: '🟦', correct: true },
+          { id: '3', name: 'triangle', emoji: '🔺', correct: false },
+        ],
+      },
+      {
+        text: 'Which has 4 sides but NOT all equal?',
+        shape: 'rectangle',
+        options: [
+          { id: '1', name: 'rectangle', emoji: '🟧', correct: true },
+          { id: '2', name: 'square', emoji: '🟦', correct: false },
+          { id: '3', name: 'hexagon', emoji: '⬡', correct: false },
+        ],
+      },
+      {
+        text: 'Which can ROLL?',
+        shape: 'circle',
+        options: [
+          { id: '1', name: 'circle', emoji: '⭕', correct: true },
+          { id: '2', name: 'square', emoji: '🟦', correct: false },
+          { id: '3', name: 'triangle', emoji: '🔺', correct: false },
+        ],
+      },
+      {
+        text: 'Which shape is like a DIAMOND?',
+        shape: 'diamond',
+        options: [
+          { id: '1', name: 'diamond', emoji: '💎', correct: true },
+          { id: '2', name: 'hexagon', emoji: '⬡', correct: false },
+          { id: '3', name: 'circle', emoji: '⭕', correct: false },
+        ],
+      },
+      {
+        text: 'Which shape TILES a floor perfectly?',
+        shape: 'hexagon',
+        options: [
+          { id: '1', name: 'hexagon', emoji: '⬡', correct: true },
+          { id: '2', name: 'pentagon', emoji: '⬠', correct: false },
+          { id: '3', name: 'circle', emoji: '⭕', correct: false },
+        ],
+      },
+    ],
+    '9-10': [
+      {
+        text: 'A triangle has what type of angles if all are less than 90°?',
+        shape: 'triangle',
+        options: [
+          { id: '1', name: 'acute', emoji: '📐', correct: true },
+          { id: '2', name: 'obtuse', emoji: '📏', correct: false },
+          { id: '3', name: 'right', emoji: '🔲', correct: false },
+        ],
+      },
+      {
+        text: 'How many lines of SYMMETRY does a circle have?',
+        shape: 'circle',
+        options: [
+          { id: '1', name: 'infinite', emoji: '♾️', correct: true },
+          { id: '2', name: 'four', emoji: '4️⃣', correct: false },
+          { id: '3', name: 'one', emoji: '1️⃣', correct: false },
+        ],
+      },
+      {
+        text: 'A CUBE is a 3D version of which shape?',
+        shape: 'square',
+        options: [
+          { id: '1', name: 'square', emoji: '🟦', correct: true },
+          { id: '2', name: 'triangle', emoji: '🔺', correct: false },
+          { id: '3', name: 'circle', emoji: '⭕', correct: false },
+        ],
+      },
+      {
+        text: 'A SPHERE is a 3D version of which shape?',
+        shape: 'circle',
+        options: [
+          { id: '1', name: 'square', emoji: '🟦', correct: false },
+          { id: '2', name: 'circle', emoji: '⭕', correct: true },
+          { id: '3', name: 'triangle', emoji: '🔺', correct: false },
+        ],
+      },
+      {
+        text: 'A right angle measures exactly…?',
+        shape: 'square',
+        options: [
+          { id: '1', name: '90 degrees', emoji: '📐', correct: true },
+          { id: '2', name: '180 degrees', emoji: '📏', correct: false },
+          { id: '3', name: '45 degrees', emoji: '📎', correct: false },
+        ],
+      },
+      {
+        text: 'How many FACES does a cube have?',
+        shape: 'square',
+        options: [
+          { id: '1', name: '4', emoji: '4️⃣', correct: false },
+          { id: '2', name: '6', emoji: '6️⃣', correct: true },
+          { id: '3', name: '8', emoji: '8️⃣', correct: false },
+        ],
+      },
+      {
+        text: 'The distance AROUND a shape is called the…?',
+        shape: 'rectangle',
+        options: [
+          { id: '1', name: 'perimeter', emoji: '📏', correct: true },
+          { id: '2', name: 'area', emoji: '📐', correct: false },
+          { id: '3', name: 'volume', emoji: '📦', correct: false },
+        ],
+      },
+      {
+        text: 'The space INSIDE a shape is called the…?',
+        shape: 'rectangle',
+        options: [
+          { id: '1', name: 'perimeter', emoji: '📏', correct: false },
+          { id: '2', name: 'area', emoji: '📐', correct: true },
+          { id: '3', name: 'diameter', emoji: '⭕', correct: false },
+        ],
+      },
+      {
+        text: 'A CYLINDER is a 3D version of which shape?',
+        shape: 'circle',
+        options: [
+          { id: '1', name: 'circle', emoji: '⭕', correct: true },
+          { id: '2', name: 'square', emoji: '🟦', correct: false },
+          { id: '3', name: 'triangle', emoji: '🔺', correct: false },
+        ],
+      },
+      {
+        text: 'A CONE has what shape as its base?',
+        shape: 'circle',
+        options: [
+          { id: '1', name: 'circle', emoji: '⭕', correct: true },
+          { id: '2', name: 'square', emoji: '🟦', correct: false },
+          { id: '3', name: 'triangle', emoji: '🔺', correct: false },
+        ],
+      },
+      {
+        text: 'How many EDGES does a cube have?',
+        shape: 'square',
+        options: [
+          { id: '1', name: '12', emoji: '📐', correct: true },
+          { id: '2', name: '8', emoji: '📏', correct: false },
+          { id: '3', name: '6', emoji: '📎', correct: false },
+        ],
+      },
+      {
+        text: 'How many VERTICES does a cube have?',
+        shape: 'square',
+        options: [
+          { id: '1', name: '6', emoji: '📏', correct: false },
+          { id: '2', name: '8', emoji: '📐', correct: true },
+          { id: '3', name: '12', emoji: '📎', correct: false },
+        ],
+      },
+      {
+        text: 'An EQUILATERAL triangle has all sides…?',
+        shape: 'triangle',
+        options: [
+          { id: '1', name: 'equal', emoji: '📏', correct: true },
+          { id: '2', name: 'different', emoji: '📐', correct: false },
+          { id: '3', name: 'curved', emoji: '⭕', correct: false },
+        ],
+      },
+      {
+        text: 'How many lines of SYMMETRY does a square have?',
+        shape: 'square',
+        options: [
+          { id: '1', name: 'four', emoji: '4️⃣', correct: true },
+          { id: '2', name: 'two', emoji: '2️⃣', correct: false },
+          { id: '3', name: 'one', emoji: '1️⃣', correct: false },
+        ],
+      },
+      {
+        text: 'The sum of angles in a triangle is…?',
+        shape: 'triangle',
+        options: [
+          { id: '1', name: '180 degrees', emoji: '📐', correct: true },
+          { id: '2', name: '360 degrees', emoji: '📏', correct: false },
+          { id: '3', name: '90 degrees', emoji: '📎', correct: false },
+        ],
+      },
+      {
+        text: 'A TRIANGULAR prism has what shape for its bases?',
+        shape: 'triangle',
+        options: [
+          { id: '1', name: 'triangle', emoji: '🔺', correct: true },
+          { id: '2', name: 'circle', emoji: '⭕', correct: false },
+          { id: '3', name: 'square', emoji: '🟦', correct: false },
+        ],
+      },
     ],
   };
 
-  const [questionOrder] = useState(() => shuffleArray(questions[ageBand].map((_, i) => i)));
-  const q = questions[ageBand][questionOrder[currentQuestion % questionOrder.length]];
+/**
+ * Shapes Game — teaches shape recognition, naming, and properties
+ *
+ * Pedagogical approach:
+ * - Large SVG illustrations for clear visual identification
+ * - Emoji + name labels for multi-modal learning
+ * - Auto-spoken questions for pre-readers
+ * - Positive reinforcement on every attempt
+ */
+export const ShapesGame: React.FC<ShapesGameProps> = ({
+  ageBand,
+  difficulty,
+  sessionRound = 1,
+  onCorrect,
+  onWrong,
+}) => {
+  const insets = useSafeAreaInsets();
+  const [currentQuestion, setCurrentQuestion] = useState(0);
+  const { scaleAnim, contentOpacity, speakQuestion, handleCorrectAnswer, handleWrongAnswer, fadeToNextQuestion } = useGameFeedback();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [answerResult, setAnswerResult] = useState<'correct' | 'wrong' | null>(null);
+
+  const questionOrder = useMemo(
+    () => getSessionQuestionOrder(QUESTIONS[ageBand].length, sessionRound),
+    [ageBand, sessionRound]
+  );
+  const qBase = QUESTIONS[ageBand][questionOrder[currentQuestion % questionOrder.length]];
+  const q = useMemo(() => {
+    const promptStyles = [
+      qBase.text,
+      `Find this shape: ${qBase.text}`,
+      `Quick challenge: ${qBase.text}`,
+    ];
+    return {
+      ...qBase,
+      text: promptStyles[(sessionRound + currentQuestion) % promptStyles.length],
+      options: seededShuffle(qBase.options, sessionRound * 1000 + currentQuestion + 23),
+    };
+  }, [qBase, sessionRound, currentQuestion]);
 
   useEffect(() => {
     return speakQuestion(q.text);
   }, [currentQuestion, speakQuestion, q.text]);
 
   const handleOptionPress = async (option: ShapeOption) => {
+    if (selectedId) return;
+    setSelectedId(option.id);
+    setAnswerResult(option.correct ? 'correct' : 'wrong');
+
     if (option.correct) {
-      await handleCorrectAnswer(option.name, onCorrect, () => setCurrentQuestion((p) => p + 1));
+      await handleCorrectAnswer(option.name, onCorrect, () => {
+        fadeToNextQuestion(() => {
+          setSelectedId(null);
+          setAnswerResult(null);
+          setCurrentQuestion((p) => p + 1);
+        });
+      });
     } else {
       await handleWrongAnswer(option.name, onWrong);
+      setTimeout(() => {
+        setSelectedId(null);
+        setAnswerResult(null);
+      }, 200);
     }
   };
 
@@ -368,25 +719,32 @@ export const ShapesGame: React.FC<ShapesGameProps> = ({
         <VoiceButton text={q.text} style={styles.voiceButton} />
       </View>
 
-      <View style={styles.illustration}>
-        <ShapeIllustration shape={q.shape} />
-      </View>
+      <Animated.View style={{ opacity: contentOpacity, width: '100%', alignItems: 'center' }}>
+        <View style={styles.illustration}>
+          <ShapeIllustration shape={q.shape} />
+        </View>
 
-      <View style={styles.optionsContainer}>
-        {q.options.map((option) => (
-          <Animated.View key={option.id} style={{ transform: [{ scale: scaleAnim }] }}>
-            <TouchableOpacity
-              onPress={() => handleOptionPress(option)}
-              style={styles.optionButton}
-              activeOpacity={0.7}
-              accessibilityLabel={option.name}
-            >
-              <Text style={styles.optionEmoji}>{option.emoji}</Text>
-              <Text style={styles.optionLabel}>{option.name}</Text>
-            </TouchableOpacity>
-          </Animated.View>
-        ))}
-      </View>
+        <View style={styles.optionsContainer}>
+          {q.options.map((option) => (
+            <Animated.View key={option.id} style={{ transform: [{ scale: scaleAnim }] }}>
+              <TouchableOpacity
+                onPress={() => handleOptionPress(option)}
+                style={[
+                  styles.optionButton,
+                  selectedId === option.id && answerResult === 'correct' && styles.correctHighlight,
+                  selectedId === option.id && answerResult === 'wrong' && styles.wrongHighlight,
+                ]}
+                activeOpacity={0.7}
+                disabled={selectedId !== null}
+                accessibilityLabel={option.name}
+              >
+                <Text style={styles.optionEmoji}>{option.emoji}</Text>
+                <Text style={styles.optionLabel}>{option.name}</Text>
+              </TouchableOpacity>
+            </Animated.View>
+          ))}
+        </View>
+      </Animated.View>
     </View>
   );
 };
@@ -443,6 +801,22 @@ const styles = StyleSheet.create({
     color: '#333',
     textTransform: 'uppercase',
     letterSpacing: 1,
+  },
+  correctHighlight: {
+    borderColor: '#16A34A',
+    backgroundColor: '#DCFCE7',
+    shadowColor: '#16A34A',
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 10,
+  },
+  wrongHighlight: {
+    borderColor: '#DC2626',
+    backgroundColor: '#FEE2E2',
+    shadowColor: '#DC2626',
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 10,
   },
 });
 

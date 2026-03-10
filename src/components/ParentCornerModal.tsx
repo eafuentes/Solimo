@@ -186,7 +186,7 @@ export const ParentCornerModal: React.FC<ParentCornerModalProps> = ({
           <View>
             <Text style={styles.sectionLabel}>Age Band</Text>
             <View style={styles.ageBandContainer}>
-              {(['3-4', '5-6', '7-8'] as AgeBand[]).map((band) => (
+              {(['3-4', '5-6', '7-8', '9-10'] as AgeBand[]).map((band) => (
                 <TouchableOpacity
                   key={band}
                   onPress={() => handleAgeBandChange(band)}

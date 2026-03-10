@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,15 +6,27 @@ import {
   TouchableOpacity,
   Animated,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ActivityId, AgeBand } from '../src/types';
-import { getAgeBand, getDifficultyLevel, markCompletedToday, incrementStreak } from '../src/lib/storage';
+import {
+  getAgeBand,
+  getDifficultyLevel,
+  setDifficultyLevel,
+  markCompletedToday,
+  incrementStreak,
+  getNextSessionRound,
+  getLocalBestResult,
+  saveLocalGameResult,
+  LocalBestResult,
+} from '../src/lib/storage';
 import { DifficultyManager } from '../src/lib/difficulty';
 import { getActivityName } from '../src/lib/schedule';
 import { ProgressStars } from '../src/components/ProgressStars';
 import * as Speech from 'expo-speech';
+import * as Haptics from 'expo-haptics';
 import { ColorsGame } from '../src/components/games/ColorsGame';
 import { ShapesGame } from '../src/components/games/ShapesGame';
 import { NumbersGame } from '../src/components/games/NumbersGame';
@@ -23,8 +35,40 @@ import { MemoryGame } from '../src/components/games/MemoryGame';
 import { SortingGame } from '../src/components/games/SortingGame';
 import { LogicGame } from '../src/components/games/LogicGame';
 
-/** How many correct answers needed to complete a session */
-const REQUIRED_CORRECT = 5;
+/**
+ * How many correct answers a game+age-band session requires.
+ * Memory boards are finite (one correct per matched pair), so cap
+ * the requirement at the number of pairs available.
+ * All other games cycle questions via modulo, so 5 is always reachable.
+ */
+function getRequiredCorrect(activity: string, age: AgeBand): number {
+  if (activity === 'memory') {
+    const pairCounts: Record<AgeBand, number> = { '3-4': 3, '5-6': 4, '7-8': 5, '9-10': 6 };
+    return pairCounts[age];
+  }
+  return 5;
+}
+
+const TIMER_SECONDS_7_8 = 90;
+const TIMER_SECONDS_9_10 = 75;
+
+/** Varied celebration messages so every session feels fresh */
+const CELEBRATION_MESSAGES = [
+  'Wonderful! Great job! You are a star!',
+  'Amazing work! You did fantastic today!',
+  'Incredible! You are so smart!',
+  'Brilliant! You nailed it!',
+  'Super job! You are a champion!',
+  'Wow! That was awesome!',
+  'You rock! What a great session!',
+];
+
+const TIMEOUT_MESSAGES = [
+  'Time is up! Great effort! Keep practicing!',
+  'Time is up! You did really well!',
+  'Time is up! That was a great try!',
+  'Time is up! Practice makes perfect!',
+];
 
 /**
  * Activity screen — the game session wrapper
@@ -47,6 +91,10 @@ export default function ActivityScreen() {
   const [sessionComplete, setSessionComplete] = useState(false);
   const [correctCount, setCorrectCount] = useState(0);
   const [totalAttempts, setTotalAttempts] = useState(0);
+  const [sessionRound, setSessionRound] = useState(1);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [timedOut, setTimedOut] = useState(false);
+  const [bestResult, setBestResult] = useState<LocalBestResult | null>(null);
 
   // Celebration animations
   const scaleAnim = useRef(new Animated.Value(0)).current;
@@ -58,39 +106,69 @@ export default function ActivityScreen() {
       if (!activityId) return;
       const userAgeBand = await getAgeBand();
       setAgeBand(userAgeBand);
-      const userDifficulty = await getDifficultyLevel(activityId);
+      const [userDifficulty, nextRound, storedBest] = await Promise.all([
+        getDifficultyLevel(activityId),
+        getNextSessionRound(activityId, userAgeBand),
+        getLocalBestResult(activityId, userAgeBand),
+      ]);
       setDifficulty(userDifficulty);
       setDifficultyManager(new DifficultyManager(userDifficulty));
+      setSessionRound(nextRound);
+      setBestResult(storedBest);
+      setElapsedSeconds(0);
+      setTimedOut(false);
       setIsLoading(false);
     }
     load();
   }, [activityId]);
 
-  const handleCorrect = async () => {
-    const newCount = correctCount + 1;
+  const isTimedMode = ageBand === '7-8' || ageBand === '9-10';
+  const timerSeconds = ageBand === '9-10' ? TIMER_SECONDS_9_10 : TIMER_SECONDS_7_8;
+  const requiredCorrect = getRequiredCorrect(activityId ?? '', ageBand);
+
+  const difficultyManagerRef = useRef<DifficultyManager | null>(null);
+  difficultyManagerRef.current = difficultyManager;
+
+  // Ref mirrors correctCount so handleCorrect never reads a stale closure value
+  const correctCountRef = useRef(0);
+  correctCountRef.current = correctCount;
+
+  const handleCorrect = useCallback(async () => {
+    if (timedOut) return;
+    const newCount = correctCountRef.current + 1;
+    correctCountRef.current = newCount;
     setCorrectCount(newCount);
     setTotalAttempts((prev) => prev + 1);
 
-    if (!difficultyManager) return;
-    difficultyManager.recordCorrect();
-    const newLevel = difficultyManager.getDifficultyAdjustment();
-    if (newLevel) setDifficulty(newLevel);
+    const dm = difficultyManagerRef.current;
+    if (!dm) return;
+    dm.recordCorrect();
+    const newLevel = dm.getDifficultyAdjustment();
+    if (newLevel) {
+      setDifficulty(newLevel);
+      if (activityId) void setDifficultyLevel(activityId, newLevel);
+    }
 
-    if (newCount >= REQUIRED_CORRECT) {
+    if (newCount >= requiredCorrect) {
       Speech.stop();
       await markCompletedToday();
       await incrementStreak();
       setSessionComplete(true);
     }
-  };
+  }, [timedOut, activityId, requiredCorrect]);
 
-  const handleWrong = () => {
+  const handleWrong = useCallback(() => {
+    if (timedOut) return;
     setTotalAttempts((prev) => prev + 1);
-    if (!difficultyManager) return;
-    difficultyManager.recordWrong();
-    const newLevel = difficultyManager.getDifficultyAdjustment();
-    if (newLevel) setDifficulty(newLevel);
-  };
+    const dm = difficultyManagerRef.current;
+    if (!dm) return;
+    dm.recordWrong();
+    const newLevel = dm.getDifficultyAdjustment();
+    if (newLevel) {
+      setDifficulty(newLevel);
+      if (activityId) void setDifficultyLevel(activityId, newLevel);
+    }
+  }, [timedOut, activityId]);
 
   // Stop speech when leaving
   useEffect(() => {
@@ -98,6 +176,56 @@ export default function ActivityScreen() {
       Speech.stop();
     };
   }, []);
+
+  // Timer mode for older kids (age 7-8, 9-10)
+  useEffect(() => {
+    if (isLoading || sessionComplete || !isTimedMode) return;
+
+    const interval = setInterval(() => {
+      setElapsedSeconds((prev) => {
+        const next = prev + 1;
+
+        // Haptic pulse at 10-second warning
+        if (next === timerSeconds - 10 && Platform.OS !== 'web') {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        }
+
+        if (next >= timerSeconds) {
+          clearInterval(interval);
+          setTimedOut(true);
+          setSessionComplete(true);
+          Speech.stop();
+          if (Platform.OS !== 'web') {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          }
+          return timerSeconds;
+        }
+        return next;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isLoading, sessionComplete, isTimedMode, timerSeconds]);
+
+  // Persist local best result on session completion
+  useEffect(() => {
+    if (!sessionComplete || !activityId) return;
+
+    const accuracy = totalAttempts > 0 ? Math.round((correctCount / totalAttempts) * 100) : 100;
+    const elapsed = isTimedMode ? Math.min(elapsedSeconds, timerSeconds) : null;
+
+    void saveLocalGameResult(activityId, ageBand, accuracy, elapsed)
+      .then((updated) => setBestResult(updated))
+      .catch((error) => console.warn('Save local result error:', error));
+  }, [
+    sessionComplete,
+    activityId,
+    ageBand,
+    correctCount,
+    totalAttempts,
+    elapsedSeconds,
+    isTimedMode,
+  ]);
 
   // Celebration animations + speech
   useEffect(() => {
@@ -123,13 +251,16 @@ export default function ActivityScreen() {
     ]).start();
 
     setTimeout(() => {
-      Speech.speak('Wonderful! Great job! You are a star! See you tomorrow!', {
+      const message = timedOut
+        ? TIMEOUT_MESSAGES[Math.floor(Math.random() * TIMEOUT_MESSAGES.length)]
+        : CELEBRATION_MESSAGES[Math.floor(Math.random() * CELEBRATION_MESSAGES.length)];
+      Speech.speak(message, {
         language: 'en',
         pitch: 1.65,
         rate: 0.95,
       });
     }, 500);
-  }, [sessionComplete]);
+  }, [sessionComplete, timedOut]);
 
   const activityName = activityId ? getActivityName(activityId as ActivityId) : '';
 
@@ -150,6 +281,7 @@ export default function ActivityScreen() {
   if (sessionComplete) {
     const accuracy = totalAttempts > 0 ? Math.round((correctCount / totalAttempts) * 100) : 100;
     const starRating = accuracy >= 90 ? 3 : accuracy >= 70 ? 2 : 1;
+    const remaining = Math.max(0, timerSeconds - elapsedSeconds);
 
     return (
       <Animated.View
@@ -194,8 +326,18 @@ export default function ActivityScreen() {
         </View>
 
         <Text style={styles.completionText}>
-          You got {correctCount} out of {totalAttempts} correct!
+          {timedOut
+            ? `Time's up! You got ${correctCount} out of ${totalAttempts} correct!`
+            : `You got ${correctCount} out of ${totalAttempts} correct!`}
         </Text>
+        {isTimedMode && <Text style={styles.completionSubtext}>⏱️ Time left: {remaining}s</Text>}
+        {bestResult && (
+          <Text style={styles.completionSubtext}>
+            🏅 Best: {bestResult.bestAccuracy}%
+            {bestResult.fastestTimeSec !== null ? ` • Fastest: ${bestResult.fastestTimeSec}s` : ''}
+            {'\n'}Plays: {bestResult.plays}
+          </Text>
+        )}
         <Text style={styles.completionSubtext}>
           {accuracy >= 90
             ? '🌟 Perfect! You are amazing!'
@@ -211,6 +353,27 @@ export default function ActivityScreen() {
         >
           <Text style={styles.homeButtonText}>🏠 Back to Home</Text>
         </TouchableOpacity>
+
+        <TouchableOpacity
+          onPress={async () => {
+            Speech.stop();
+            setSessionComplete(false);
+            correctCountRef.current = 0;
+            setCorrectCount(0);
+            setTotalAttempts(0);
+            setElapsedSeconds(0);
+            setTimedOut(false);
+            scaleAnim.setValue(0);
+            fadeAnim.setValue(0);
+            confettiAnim.setValue(0);
+            const nextRound = await getNextSessionRound(activityId, ageBand);
+            setSessionRound(nextRound);
+          }}
+          style={styles.playAgainButton}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.playAgainButtonText}>🔄 Play Again</Text>
+        </TouchableOpacity>
       </Animated.View>
     );
   }
@@ -220,9 +383,12 @@ export default function ActivityScreen() {
   const gameProps = {
     ageBand,
     difficulty: difficulty as 1 | 2 | 3,
+    sessionRound,
     onCorrect: handleCorrect,
     onWrong: handleWrong,
   };
+
+  const timeRemaining = Math.max(0, timerSeconds - elapsedSeconds);
 
   const GameComponent = {
     colors: ColorsGame,
@@ -255,7 +421,30 @@ export default function ActivityScreen() {
         >
           <Text style={styles.backArrow}>←</Text>
         </TouchableOpacity>
-        <ProgressStars current={correctCount} total={REQUIRED_CORRECT} />
+        <View style={styles.centerStatus}>
+          <ProgressStars current={correctCount} total={requiredCorrect} />
+          {isTimedMode && (
+            <View
+              style={[
+                styles.timerBadge,
+                timeRemaining <= 10
+                  ? styles.timerUrgent
+                  : timeRemaining <= 30
+                    ? styles.timerWarning
+                    : styles.timerNormal,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.timerText,
+                  timeRemaining <= 10 && styles.timerTextUrgent,
+                ]}
+              >
+                ⏱️ {timeRemaining}s
+              </Text>
+            </View>
+          )}
+        </View>
         <View style={styles.backButton} />
       </View>
       <GameComponent {...gameProps} />
@@ -285,6 +474,34 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 8,
+  },
+  centerStatus: {
+    alignItems: 'center',
+    gap: 6,
+  },
+  timerBadge: {
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+  },
+  timerNormal: {
+    backgroundColor: '#DCFCE7',
+  },
+  timerWarning: {
+    backgroundColor: '#FFF3CD',
+  },
+  timerUrgent: {
+    backgroundColor: '#FEE2E2',
+  },
+  timerText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#7A4E00',
+  },
+  timerTextUrgent: {
+    color: '#DC2626',
+    fontSize: 16,
+    fontWeight: '900',
   },
   backButton: {
     width: 44,
@@ -355,11 +572,26 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 12,
     elevation: 8,
+    marginBottom: 12,
   },
   homeButtonText: {
     fontSize: 20,
     fontWeight: '800',
     color: '#1a1a1a',
+    textAlign: 'center',
+  },
+  playAgainButton: {
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 16,
+    paddingHorizontal: 36,
+    borderRadius: 30,
+    borderWidth: 3,
+    borderColor: '#E5E7EB',
+  },
+  playAgainButtonText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#666',
     textAlign: 'center',
   },
 });

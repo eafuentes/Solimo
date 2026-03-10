@@ -1,89 +1,3 @@
-import * as Speech from 'expo-speech';
-
-/**
- * Shared voice settings for consistent audio across all games
- */
-export const VOICE_SETTINGS = {
-  question: {
-    pitch: 1.5,
-    rate: 0.95,
-  },
-  success: {
-    pitch: 1.65,
-    rate: 0.95,
-  },
-  error: {
-    pitch: 1.45,
-    rate: 0.9,
-  },
-} as const;
-
-/**
- * Reusable success message templates
- */
-export const SUCCESS_MESSAGES = [
-  (label: string) => `${label}! Yay!`,
-  (label: string) => `${label}! Yes!`,
-  (label: string) => `${label}! Nice!`,
-  (label: string) => `${label}! Awesome!`,
-  (label: string) => `${label}! Cool!`,
-  (label: string) => `${label}! Wow!`,
-];
-
-/**
- * Reusable error message templates
- */
-export const ERROR_MESSAGES = [
-  (label: string) => `That's ${label}. Try again!`,
-  (label: string) => `Nope! That's ${label}. Go!`,
-  (label: string) => `That's ${label}. Keep trying!`,
-  (label: string) => `Oops! That's ${label}. Once more!`,
-  (label: string) => `That is ${label}. You can do it!`,
-];
-
-/**
- * Get random message from array
- */
-export function getRandomMessage(
-  messages: Array<(label: string) => string>,
-  label: string
-): string {
-  const messageTemplate = messages[Math.floor(Math.random() * messages.length)];
-  return messageTemplate(label);
-}
-
-/**
- * Speak a message with given voice settings
- */
-export function speakMessage(
-  text: string,
-  settings:
-    | typeof VOICE_SETTINGS.question
-    | typeof VOICE_SETTINGS.success
-    | typeof VOICE_SETTINGS.error
-): void {
-  try {
-    Speech.speak(text, {
-      language: 'en',
-      pitch: settings.pitch,
-      rate: settings.rate,
-    });
-  } catch (error) {
-    console.warn('Speech error:', error);
-  }
-}
-
-/**
- * Stop all speech
- */
-export function stopSpeech(): void {
-  try {
-    Speech.stop();
-  } catch (error) {
-    console.warn('Stop speech error:', error);
-  }
-}
-
 /**
  * Get difficulty-based count for memory-like games
  */
@@ -95,6 +9,8 @@ export function getDifficultyCount(ageBand: string): number {
       return 4;
     case '7-8':
       return 6;
+    case '9-10':
+      return 8;
     default:
       return 3;
   }
@@ -111,6 +27,55 @@ export function shuffleArray<T>(array: T[]): T[] {
     [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
   }
   return shuffled;
+}
+
+/**
+ * Deterministic per-session question order.
+ * Same session round => stable order, next round => different order.
+ */
+export function getSessionQuestionOrder(total: number, sessionRound = 1): number[] {
+  const indices = Array.from({ length: total }, (_, i) => i);
+  if (indices.length <= 1) return indices;
+
+  let rng = Math.max(1, sessionRound);
+  for (let i = indices.length - 1; i > 0; i--) {
+    rng = (rng * 1103515245 + 12345) % 2147483648;
+    const j = ((rng / 2147483648) * (i + 1)) | 0;
+    [indices[i], indices[j]] = [indices[j], indices[i]];
+  }
+
+  return indices;
+}
+
+/**
+ * Create deterministic pseudo-random generator from an integer seed.
+ */
+export function createSeededRng(seed: number): () => number {
+  let state = (Math.abs(seed) || 1) % 2147483647;
+  return () => {
+    state = (state * 48271) % 2147483647;
+    return state / 2147483647;
+  };
+}
+
+/**
+ * Deterministically shuffle an array from seed.
+ */
+export function seededShuffle<T>(array: T[], seed: number): T[] {
+  const rng = createSeededRng(seed);
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
+/**
+ * Get deterministic int in [min, max] from seeded rng.
+ */
+export function seededInt(rng: () => number, min: number, max: number): number {
+  return Math.floor(rng() * (max - min + 1)) + min;
 }
 
 /**

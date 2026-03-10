@@ -79,6 +79,14 @@ function formatLabel(label: string): string {
 }
 
 /**
+ * How many wrong attempts before the correct answer is revealed.
+ * Lower difficulty = more help. Higher difficulty = more independence.
+ */
+export function getHintThreshold(difficulty: 1 | 2 | 3): number {
+  return difficulty; // diff 1 → reveal after 1 wrong, diff 3 → after 3
+}
+
+/**
  * Reusable game feedback hook
  * Handles speech, animations, and answer processing for all game types.
  * Designed with child psychology principles:
@@ -89,6 +97,7 @@ function formatLabel(label: string): string {
  */
 export function useGameFeedback() {
   const scaleAnim = useRef(new Animated.Value(1)).current;
+  const contentOpacity = useRef(new Animated.Value(1)).current;
 
   // Stop speech on unmount to prevent orphaned audio
   useEffect(() => {
@@ -131,13 +140,29 @@ export function useGameFeedback() {
     [speak]
   );
 
+  /**
+   * Stop any in-progress speech and pause briefly so iOS AVSpeechSynthesizer
+   * fully releases the audio session before a new utterance is queued.
+   */
+  const stopAndPause = useCallback(async () => {
+    Speech.stop();
+    await new Promise<void>((r) => setTimeout(r, 150));
+  }, []);
+
   /** Auto-speak a question with a small delay for component settling */
   const speakQuestion = useCallback(
     (text: string, delay = 500) => {
-      const timeout = setTimeout(() => {
-        speak(text, 'question');
+      let cancelled = false;
+      const timeout = setTimeout(async () => {
+        Speech.stop();
+        await new Promise<void>((r) => setTimeout(r, 150)); // let iOS finish stop
+        if (!cancelled) speak(text, 'question');
       }, delay);
-      return () => clearTimeout(timeout);
+      return () => {
+        cancelled = true;
+        clearTimeout(timeout);
+        Speech.stop();
+      };
     },
     [speak]
   );
@@ -169,6 +194,25 @@ export function useGameFeedback() {
     ]).start();
   }, [scaleAnim]);
 
+  /** Fade content out, run callback, fade back in — smooth question transitions */
+  const fadeToNextQuestion = useCallback(
+    (callback: () => void) => {
+      Animated.timing(contentOpacity, {
+        toValue: 0,
+        duration: 120,
+        useNativeDriver: true,
+      }).start(() => {
+        callback();
+        Animated.timing(contentOpacity, {
+          toValue: 1,
+          duration: 250,
+          useNativeDriver: true,
+        }).start();
+      });
+    },
+    [contentOpacity]
+  );
+
   /**
    * Handle a correct answer with celebration
    * @param label - The label to include in the success message
@@ -177,6 +221,7 @@ export function useGameFeedback() {
    */
   const handleCorrectAnswer = useCallback(
     async (label: string, onCorrect: () => void, onAdvance?: () => void) => {
+      await stopAndPause();       // stop question speech + let iOS settle
       const message = formatLabel(label);
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       await speakWithTimeout(message, 'success');
@@ -187,7 +232,7 @@ export function useGameFeedback() {
         onAdvance?.();
       }, 450);
     },
-    [speakWithTimeout, playSuccessAnimation]
+    [stopAndPause, speakWithTimeout, playSuccessAnimation]
   );
 
   /**
@@ -197,6 +242,7 @@ export function useGameFeedback() {
    */
   const handleWrongAnswer = useCallback(
     async (label: string, onWrong: () => void) => {
+      await stopAndPause();       // stop question speech + let iOS settle
       const message = `${formatLabel(label)}. Try again!`;
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       await speakWithTimeout(message, 'encouragement');
@@ -206,12 +252,13 @@ export function useGameFeedback() {
         onWrong();
       }, 350);
     },
-    [speakWithTimeout, playErrorAnimation]
+    [stopAndPause, speakWithTimeout, playErrorAnimation]
   );
 
   /** Handle correct with generic (no label) message */
   const handleGenericCorrect = useCallback(
     async (onCorrect: () => void, onAdvance?: () => void) => {
+      await stopAndPause();       // stop question speech + let iOS settle
       const message = pickRandom(GENERIC_SUCCESS);
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       await speakWithTimeout(message, 'success');
@@ -222,12 +269,13 @@ export function useGameFeedback() {
         onAdvance?.();
       }, 450);
     },
-    [speakWithTimeout, playSuccessAnimation]
+    [stopAndPause, speakWithTimeout, playSuccessAnimation]
   );
 
   /** Handle wrong with generic (no label) message */
   const handleGenericWrong = useCallback(
     async (onWrong: () => void) => {
+      await stopAndPause();       // stop question speech + let iOS settle
       const message = pickRandom(GENERIC_ENCOURAGEMENT);
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       await speakWithTimeout(message, 'encouragement');
@@ -237,18 +285,40 @@ export function useGameFeedback() {
         onWrong();
       }, 350);
     },
-    [speakWithTimeout, playErrorAnimation]
+    [stopAndPause, speakWithTimeout, playErrorAnimation]
+  );
+
+  /**
+   * Speak an educational hint to help the child think about the answer.
+   * Does NOT reveal which option is correct — just gives a learning clue.
+   * Awaits full speech completion so the hint is never cut short.
+   */
+  const speakHint = useCallback(
+    async (hint: string) => {
+      await stopAndPause();       // stop prior speech + let iOS settle
+      if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      // Await the actual speech promise (resolves on onDone/onStopped/onError).
+      // Safety timeout of 10s only as a fallback if callbacks never fire.
+      await Promise.race([
+        speak(hint, 'encouragement'),
+        new Promise<void>((r) => setTimeout(r, 10000)),
+      ]);
+    },
+    [stopAndPause, speak]
   );
 
   return {
     scaleAnim,
+    contentOpacity,
     speak,
     speakQuestion,
+    fadeToNextQuestion,
     playSuccessAnimation,
     playErrorAnimation,
     handleCorrectAnswer,
     handleWrongAnswer,
     handleGenericCorrect,
     handleGenericWrong,
+    speakHint,
   };
 }

@@ -9,6 +9,7 @@ import { useGameFeedback } from '../../hooks/useGameFeedback';
 interface MemoryGameProps {
   ageBand: AgeBand;
   difficulty: 1 | 2 | 3;
+  sessionRound?: number;
   onCorrect: () => void;
   onWrong: () => void;
 }
@@ -32,18 +33,40 @@ function getEmojiSets(ageBand: AgeBand): string[][] {
       ['🍎', '🍌', '🍊'],
       ['⭐', '❤️', '🌈'],
       ['🚗', '✈️', '🚂'],
+      ['🌸', '🌻', '🌷'],
+      ['🎈', '🎁', '🎉'],
+      ['🐸', '🐢', '🐛'],
+      ['🍕', '🍩', '🧁'],
     ],
     '5-6': [
       ['🐶', '🐱', '🐰', '🐻'],
       ['🍎', '🍌', '🍊', '🍇'],
       ['⭐', '❤️', '🌈', '🌙'],
       ['🦁', '🐸', '🦋', '🐝'],
+      ['🚗', '🚌', '✈️', '🚂'],
+      ['🌸', '🌻', '🌷', '🌹'],
+      ['🎈', '🎁', '🎉', '🎶'],
+      ['🍕', '🍩', '🧁', '🍦'],
     ],
     '7-8': [
       ['🐶', '🐱', '🐰', '🐻', '🦊'],
       ['🍎', '🍌', '🍊', '🍇', '🍓'],
       ['⭐', '❤️', '🌈', '🌙', '☀️'],
       ['🦁', '🐸', '🦋', '🐝', '🐢'],
+      ['🚗', '🚌', '✈️', '🚂', '🚀'],
+      ['🌸', '🌻', '🌷', '🌹', '🌺'],
+      ['🎸', '🎹', '🥁', '🎺', '🎻'],
+      ['⚽', '🏀', '🎾', '🏐', '⚾'],
+    ],
+    '9-10': [
+      ['🧬', '🔬', '🧪', '🌡️', '⚗️', '🦠'],
+      ['🌍', '🪐', '🌙', '☄️', '⭐', '🚀'],
+      ['➕', '➖', '✖️', '➗', '🟰', '📐'],
+      ['🏛️', '🗽', '🏰', '⛩️', '🕌', '🗿'],
+      ['🦴', '🧠', '🫀', '🫁', '👁️', '🦷'],
+      ['🎭', '🎨', '📖', '🎵', '🎬', '📸'],
+      ['⚡', '💧', '🔥', '🌪️', '❄️', '☀️'],
+      ['🐙', '🦑', '🐚', '🐠', '🦈', '🐋'],
     ],
   };
   return sets[ageBand];
@@ -66,6 +89,7 @@ function getEmojiSets(ageBand: AgeBand): string[][] {
 export const MemoryGame: React.FC<MemoryGameProps> = ({
   ageBand,
   difficulty,
+  sessionRound = 1,
   onCorrect,
   onWrong,
 }) => {
@@ -76,11 +100,26 @@ export const MemoryGame: React.FC<MemoryGameProps> = ({
   const [flippedIds, setFlippedIds] = useState<string[]>([]);
   const [locked, setLocked] = useState(false);
   const flipAnims = useRef<Record<string, Animated.Value>>({});
+  const cardsRef = useRef<MemoryCard[]>([]);
+  const flippedIdsRef = useRef<string[]>([]);
+  const lockedRef = useRef(false);
+
+  useEffect(() => {
+    cardsRef.current = cards;
+  }, [cards]);
+
+  useEffect(() => {
+    flippedIdsRef.current = flippedIds;
+  }, [flippedIds]);
+
+  useEffect(() => {
+    lockedRef.current = locked;
+  }, [locked]);
 
   // Initialize cards with a random emoji theme
   useEffect(() => {
     const sets = getEmojiSets(ageBand);
-    const emojis = sets[Math.floor(Math.random() * sets.length)];
+    const emojis = sets[(Math.max(sessionRound, 1) - 1) % sets.length];
     const pairs: MemoryCard[] = [];
 
     emojis.forEach((emoji, idx) => {
@@ -92,6 +131,11 @@ export const MemoryGame: React.FC<MemoryGameProps> = ({
 
     const shuffled = shuffleArray(pairs);
     setCards(shuffled);
+    cardsRef.current = shuffled;
+    setFlippedIds([]);
+    flippedIdsRef.current = [];
+    setLocked(false);
+    lockedRef.current = false;
 
     // Initialize flip animations
     const anims: Record<string, Animated.Value> = {};
@@ -99,7 +143,7 @@ export const MemoryGame: React.FC<MemoryGameProps> = ({
       anims[card.id] = new Animated.Value(0);
     });
     flipAnims.current = anims;
-  }, [ageBand]);
+  }, [ageBand, sessionRound]);
 
   // Speak the instruction on mount
   useEffect(() => {
@@ -118,64 +162,82 @@ export const MemoryGame: React.FC<MemoryGameProps> = ({
   }, []);
 
   const handleCardPress = useCallback(
-    async (card: MemoryCard) => {
-      if (locked || card.flipped || card.matched) return;
-      if (flippedIds.includes(card.id)) return;
+    async (cardId: string) => {
+      const currentCards = cardsRef.current;
+      const card = currentCards.find((c) => c.id === cardId);
+      if (!card) return;
+      if (lockedRef.current || card.flipped || card.matched) return;
+
+      const currentFlipped = flippedIdsRef.current;
+      if (currentFlipped.includes(card.id)) return;
 
       // Flip this card
-      const newFlipped = [...flippedIds, card.id];
+      const newFlipped = [...currentFlipped, card.id];
       setFlippedIds(newFlipped);
+      flippedIdsRef.current = newFlipped;
       flipCard(card.id, true);
 
-      setCards((prev) => prev.map((c) => (c.id === card.id ? { ...c, flipped: true } : c)));
+      setCards((prev) => {
+        const next = prev.map((c) => (c.id === card.id ? { ...c, flipped: true } : c));
+        cardsRef.current = next;
+        return next;
+      });
 
       if (newFlipped.length === 2) {
+        lockedRef.current = true;
         setLocked(true);
         const [firstId, secondId] = newFlipped;
-        const first = cards.find((c) => c.id === firstId)!;
-        const second = card;
+        const first = cardsRef.current.find((c) => c.id === firstId);
+        const second = cardsRef.current.find((c) => c.id === secondId);
+        if (!first || !second) {
+          setFlippedIds([]);
+          flippedIdsRef.current = [];
+          setLocked(false);
+          lockedRef.current = false;
+          return;
+        }
 
         if (first.pairId === second.pairId) {
           // Match found!
           await handleGenericCorrect(onCorrect);
-          setCards((prev) =>
-            prev.map((c) =>
+          setCards((prev) => {
+            const next = prev.map((c) =>
               c.pairId === first.pairId ? { ...c, matched: true, flipped: true } : c
-            )
-          );
+            );
+            cardsRef.current = next;
+            return next;
+          });
           setFlippedIds([]);
+          flippedIdsRef.current = [];
           setLocked(false);
+          lockedRef.current = false;
         } else {
           // No match — flip back after a brief reveal
           await handleGenericWrong(onWrong);
           setTimeout(() => {
             flipCard(firstId, false);
             flipCard(secondId, false);
-            setCards((prev) =>
-              prev.map((c) =>
+            setCards((prev) => {
+              const next = prev.map((c) =>
                 c.id === firstId || c.id === secondId ? { ...c, flipped: false } : c
-              )
-            );
+              );
+              cardsRef.current = next;
+              return next;
+            });
             setFlippedIds([]);
+            flippedIdsRef.current = [];
             setLocked(false);
+            lockedRef.current = false;
           }, 600);
         }
       }
     },
-    [
-      cards,
-      flippedIds,
-      locked,
-      flipCard,
-      handleGenericCorrect,
-      handleGenericWrong,
-      onCorrect,
-      onWrong,
-    ]
+    [flipCard, handleGenericCorrect, handleGenericWrong, onCorrect, onWrong]
   );
 
-  // Determine grid columns based on card count
-  const numColumns = cards.length <= 6 ? 3 : cards.length <= 8 ? 4 : 5;
+  // Determine grid columns and card size based on card count & age
+  const cardSize = cards.length <= 6 ? 84 : cards.length <= 8 ? 76 : cards.length <= 10 ? 68 : 62;
+  const numColumns = cards.length <= 6 ? 3 : cards.length <= 8 ? 4 : cards.length <= 10 ? 5 : 4;
 
   return (
     <View
@@ -186,7 +248,7 @@ export const MemoryGame: React.FC<MemoryGameProps> = ({
         <VoiceButton text="Find the matching pairs!" style={styles.voiceButton} />
       </View>
 
-      <View style={[styles.grid, { maxWidth: numColumns * 80 }]}>
+      <View style={[styles.grid, { maxWidth: numColumns * (cardSize + 12) }]}>
         {cards.map((card) => {
           const anim = flipAnims.current[card.id];
           const frontInterpolate = anim
@@ -197,46 +259,40 @@ export const MemoryGame: React.FC<MemoryGameProps> = ({
             : '180deg';
 
           return (
-            <View key={card.id} style={styles.cardWrapper}>
-              {/* Card back (face down) */}
-              <Animated.View
-                style={[
-                  styles.card,
-                  styles.cardBack,
-                  card.matched && styles.cardMatched,
-                  { transform: [{ rotateY: frontInterpolate }] },
-                ]}
+            <View key={card.id} style={[styles.cardWrapper, { width: cardSize, height: cardSize }]}>
+              <TouchableOpacity
+                style={[styles.cardTouchable, { width: cardSize, height: cardSize }]}
+                onPress={() => handleCardPress(card.id)}
+                activeOpacity={0.7}
+                disabled={locked || card.flipped || card.matched}
+                accessibilityLabel={card.flipped ? card.emoji : 'Hidden card'}
               >
-                <TouchableOpacity
-                  style={styles.cardTouchable}
-                  onPress={() => handleCardPress(card)}
-                  activeOpacity={0.7}
-                  disabled={locked || card.matched}
-                  accessibilityLabel="Hidden card"
+                <Animated.View
+                  pointerEvents="none"
+                  style={[
+                    styles.card,
+                    styles.cardBack,
+                    { width: cardSize, height: cardSize },
+                    card.matched && styles.cardMatched,
+                    { transform: [{ rotateY: frontInterpolate }] },
+                  ]}
                 >
                   <Text style={styles.cardBackText}>❓</Text>
-                </TouchableOpacity>
-              </Animated.View>
+                </Animated.View>
 
-              {/* Card front (face up) */}
-              <Animated.View
-                style={[
-                  styles.card,
-                  styles.cardFront,
-                  card.matched && styles.cardMatched,
-                  { transform: [{ rotateY: backInterpolate }] },
-                ]}
-              >
-                <TouchableOpacity
-                  style={styles.cardTouchable}
-                  onPress={() => handleCardPress(card)}
-                  activeOpacity={0.7}
-                  disabled={locked || card.matched}
-                  accessibilityLabel={card.emoji}
+                <Animated.View
+                  pointerEvents="none"
+                  style={[
+                    styles.card,
+                    styles.cardFront,
+                    { width: cardSize, height: cardSize },
+                    card.matched && styles.cardMatched,
+                    { transform: [{ rotateY: backInterpolate }] },
+                  ]}
                 >
-                  <Text style={styles.cardEmoji}>{card.emoji}</Text>
-                </TouchableOpacity>
-              </Animated.View>
+                  <Text style={[styles.cardEmoji, { fontSize: cardSize * 0.45 }]}>{card.emoji}</Text>
+                </Animated.View>
+              </TouchableOpacity>
             </View>
           );
         })}
@@ -273,23 +329,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'center',
-    gap: 10,
+    gap: 12,
   },
   cardWrapper: {
-    width: 68,
-    height: 68,
   },
   card: {
     position: 'absolute',
-    width: 68,
-    height: 68,
-    borderRadius: 14,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
     backfaceVisibility: 'hidden',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 4,
   },
   cardBack: {
     backgroundColor: '#7C4DFF',
@@ -300,18 +354,20 @@ const styles = StyleSheet.create({
     borderColor: '#E0E0E0',
   },
   cardMatched: {
-    opacity: 0.5,
+    borderWidth: 3,
+    borderColor: '#16A34A',
+    backgroundColor: '#F0FFF4',
+    opacity: 1,
   },
   cardTouchable: {
-    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
   cardBackText: {
-    fontSize: 28,
+    fontSize: 30,
   },
   cardEmoji: {
-    fontSize: 32,
+    fontSize: 34,
   },
 });
 

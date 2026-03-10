@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AgeBand } from '../../types';
 import { VoiceButton } from '../VoiceButton';
-import { shuffleArray } from '../../lib/gameUtils';
-import { useGameFeedback } from '../../hooks/useGameFeedback';
+import { createSeededRng, getSessionQuestionOrder, seededInt, seededShuffle } from '../../lib/gameUtils';
+import { useGameFeedback, getHintThreshold } from '../../hooks/useGameFeedback';
 
 interface NumberOption {
   id: string;
@@ -16,8 +16,161 @@ interface NumberOption {
 interface NumbersGameProps {
   ageBand: AgeBand;
   difficulty: 1 | 2 | 3;
+  sessionRound?: number;
   onCorrect: () => void;
   onWrong: () => void;
+}
+
+interface NumberQuestion {
+  text: string;
+  voiceText?: string;
+  visual?: string;
+  options: NumberOption[];
+}
+
+function makeNumberOptions(correct: number, rng: () => number, maxVal = 30): NumberOption[] {
+  const values = new Set<number>([correct]);
+  const nearby = [correct - 1, correct + 1, correct - 2, correct + 2, correct + 3, correct - 3];
+
+  for (const value of seededShuffle(nearby, seededInt(rng, 1, 99999))) {
+    if (value >= 1 && value <= maxVal && values.size < 3) values.add(value);
+  }
+
+  while (values.size < 3) {
+    values.add(seededInt(rng, 1, maxVal));
+  }
+
+  return seededShuffle(Array.from(values), seededInt(rng, 1, 99999)).map((value, index) => ({
+    id: `${index + 1}`,
+    label: `${value}`,
+    value,
+    correct: value === correct,
+  }));
+}
+
+function buildNumbersQuestions(ageBand: AgeBand, sessionRound: number): NumberQuestion[] {
+  const ageSeedMap: Record<AgeBand, number> = { '3-4': 101, '5-6': 202, '7-8': 303, '9-10': 404 };
+  const rng = createSeededRng(ageSeedMap[ageBand] + sessionRound * 997);
+  const questions: NumberQuestion[] = [];
+
+  if (ageBand === '3-4') {
+    const items = [
+      { singular: 'apple', plural: 'apples', emoji: '🍎' },
+      { singular: 'star', plural: 'stars', emoji: '⭐' },
+      { singular: 'heart', plural: 'hearts', emoji: '❤️' },
+      { singular: 'fish', plural: 'fish', emoji: '🐟' },
+      { singular: 'sun', plural: 'suns', emoji: '☀️' },
+      { singular: 'flower', plural: 'flowers', emoji: '🌸' },
+    ];
+
+    for (let i = 0; i < 6; i++) {
+      const item = items[i % items.length];
+      const count = seededInt(rng, 1, 6);
+      questions.push({
+        text: `How many ${count === 1 ? item.singular : item.plural}?`,
+        visual: Array.from({ length: count }, () => item.emoji).join(''),
+        options: makeNumberOptions(count, rng),
+      });
+    }
+  } else if (ageBand === '5-6') {
+    for (let i = 0; i < 6; i++) {
+      const isAddition = rng() > 0.35;
+      if (isAddition) {
+        const a = seededInt(rng, 1, 8);
+        const b = seededInt(rng, 1, 8);
+        const correct = a + b;
+        questions.push({
+          text: `What is ${a} + ${b}?`,
+          options: makeNumberOptions(correct, rng),
+        });
+      } else {
+        const count = seededInt(rng, 4, 10);
+        const emojis = ['🐝', '🎈', '🍪', '🚗', '⚽'];
+        const emoji = emojis[seededInt(rng, 0, emojis.length - 1)];
+        questions.push({
+          text: 'How many are there?',
+          visual: Array.from({ length: count }, () => emoji).join(''),
+          options: makeNumberOptions(count, rng),
+        });
+      }
+    }
+  } else if (ageBand === '9-10') {
+    // 4th-5th grade: multiplication, division, fractions, order of operations
+    for (let i = 0; i < 8; i++) {
+      const mode = seededInt(rng, 0, 4);
+
+      if (mode === 0) {
+        // Multiplication
+        const a = seededInt(rng, 3, 12);
+        const b = seededInt(rng, 2, 9);
+        const correct = a * b;
+        questions.push({ text: `What is ${a} × ${b}?`, voiceText: `What is ${a} times ${b}?`, options: makeNumberOptions(correct, rng, 120) });
+      } else if (mode === 1) {
+        // Division (clean divisible)
+        const b = seededInt(rng, 2, 9);
+        const correct = seededInt(rng, 2, 10);
+        const a = b * correct;
+        questions.push({ text: `What is ${a} ÷ ${b}?`, voiceText: `What is ${a} divided by ${b}?`, options: makeNumberOptions(correct, rng, 50) });
+      } else if (mode === 2) {
+        // Simple fractions: what is half of / third of / quarter of
+        const fractions = [
+          { label: 'half', divisor: 2 },
+          { label: 'a third', divisor: 3 },
+          { label: 'a quarter', divisor: 4 },
+        ];
+        const frac = fractions[seededInt(rng, 0, fractions.length - 1)];
+        const correct = seededInt(rng, 2, 10);
+        const whole = correct * frac.divisor;
+        questions.push({ text: `What is ${frac.label} of ${whole}?`, options: makeNumberOptions(correct, rng, 50) });
+      } else if (mode === 3) {
+        // Order of operations: a + b × c
+        const a = seededInt(rng, 1, 8);
+        const b = seededInt(rng, 2, 5);
+        const c = seededInt(rng, 2, 5);
+        const correct = a + b * c;
+        questions.push({ text: `What is ${a} + ${b} × ${c}?`, voiceText: `What is ${a} plus ${b} times ${c}?`, options: makeNumberOptions(correct, rng, 60) });
+      } else {
+        // Larger addition/subtraction
+        const a = seededInt(rng, 20, 80);
+        const b = seededInt(rng, 10, 40);
+        if (rng() > 0.5) {
+          const correct = a + b;
+          questions.push({ text: `What is ${a} + ${b}?`, options: makeNumberOptions(correct, rng, 150) });
+        } else {
+          const big = Math.max(a, b);
+          const small = Math.min(a, b);
+          const correct = big - small;
+          questions.push({ text: `What is ${big} - ${small}?`, options: makeNumberOptions(correct, rng, 80) });
+        }
+      }
+    }
+  } else {
+    for (let i = 0; i < 6; i++) {
+      const mode = seededInt(rng, 0, 2);
+
+      if (mode === 0) {
+        const a = seededInt(rng, 6, 18);
+        const b = seededInt(rng, 3, 12);
+        const correct = a + b;
+        questions.push({ text: `What is ${a} + ${b}?`, options: makeNumberOptions(correct, rng) });
+      } else if (mode === 1) {
+        const a = seededInt(rng, 10, 20);
+        const b = seededInt(rng, 3, 9);
+        const correct = a - b;
+        questions.push({ text: `What is ${a} - ${b}?`, options: makeNumberOptions(correct, rng) });
+      } else {
+        const a = seededInt(rng, 4, 15);
+        const b = seededInt(rng, 4, 15);
+        const correct = Math.max(a, b);
+        questions.push({
+          text: `Which is BIGGER: ${a} or ${b}?`,
+          options: makeNumberOptions(correct, rng),
+        });
+      }
+    }
+  }
+
+  return questions;
 }
 
 /**
@@ -36,188 +189,80 @@ interface NumbersGameProps {
 export const NumbersGame: React.FC<NumbersGameProps> = ({
   ageBand,
   difficulty,
+  sessionRound = 1,
   onCorrect,
   onWrong,
 }) => {
   const insets = useSafeAreaInsets();
   const [currentQuestion, setCurrentQuestion] = useState(0);
-  const { scaleAnim, speakQuestion, handleCorrectAnswer, handleWrongAnswer } = useGameFeedback();
+  const { scaleAnim, contentOpacity, speakQuestion, handleCorrectAnswer, handleWrongAnswer, fadeToNextQuestion, speakHint } = useGameFeedback();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [answerResult, setAnswerResult] = useState<'correct' | 'wrong' | null>(null);
+  const [wrongAttempts, setWrongAttempts] = useState(0);
+  const [hintGiven, setHintGiven] = useState(false);
+  const questions = useMemo(() => buildNumbersQuestions(ageBand, sessionRound), [ageBand, sessionRound]);
 
-  const questions: Record<
-    AgeBand,
-    Array<{ text: string; visual?: string; options: NumberOption[] }>
-  > = {
-    '3-4': [
-      {
-        text: 'How many apples?',
-        visual: '🍎🍎',
-        options: [
-          { id: '1', label: '1', value: 1, correct: false },
-          { id: '2', label: '2', value: 2, correct: true },
-          { id: '3', label: '3', value: 3, correct: false },
-        ],
-      },
-      {
-        text: 'How many stars?',
-        visual: '⭐⭐⭐',
-        options: [
-          { id: '1', label: '2', value: 2, correct: false },
-          { id: '2', label: '3', value: 3, correct: true },
-          { id: '3', label: '4', value: 4, correct: false },
-        ],
-      },
-      {
-        text: 'How many hearts?',
-        visual: '❤️',
-        options: [
-          { id: '1', label: '1', value: 1, correct: true },
-          { id: '2', label: '2', value: 2, correct: false },
-          { id: '3', label: '3', value: 3, correct: false },
-        ],
-      },
-      {
-        text: 'How many fish?',
-        visual: '🐟🐟🐟🐟',
-        options: [
-          { id: '1', label: '3', value: 3, correct: false },
-          { id: '2', label: '5', value: 5, correct: false },
-          { id: '3', label: '4', value: 4, correct: true },
-        ],
-      },
-      {
-        text: 'How many suns?',
-        visual: '☀️☀️☀️☀️☀️',
-        options: [
-          { id: '1', label: '4', value: 4, correct: false },
-          { id: '2', label: '5', value: 5, correct: true },
-          { id: '3', label: '6', value: 6, correct: false },
-        ],
-      },
-      {
-        text: 'Find number 3',
-        options: [
-          { id: '1', label: '1', value: 1, correct: false },
-          { id: '2', label: '3', value: 3, correct: true },
-          { id: '3', label: '5', value: 5, correct: false },
-        ],
-      },
-    ],
-    '5-6': [
-      {
-        text: 'How many bees?',
-        visual: '🐝🐝🐝🐝🐝🐝',
-        options: [
-          { id: '1', label: '5', value: 5, correct: false },
-          { id: '2', label: '6', value: 6, correct: true },
-          { id: '3', label: '7', value: 7, correct: false },
-        ],
-      },
-      {
-        text: 'What is 2 + 3?',
-        options: [
-          { id: '1', label: '4', value: 4, correct: false },
-          { id: '2', label: '5', value: 5, correct: true },
-          { id: '3', label: '6', value: 6, correct: false },
-        ],
-      },
-      {
-        text: 'What is 4 + 4?',
-        options: [
-          { id: '1', label: '7', value: 7, correct: false },
-          { id: '2', label: '8', value: 8, correct: true },
-          { id: '3', label: '9', value: 9, correct: false },
-        ],
-      },
-      {
-        text: 'What is 1 + 6?',
-        options: [
-          { id: '1', label: '6', value: 6, correct: false },
-          { id: '2', label: '7', value: 7, correct: true },
-          { id: '3', label: '8', value: 8, correct: false },
-        ],
-      },
-      {
-        text: 'How many balloons?',
-        visual: '🎈🎈🎈🎈🎈🎈🎈🎈',
-        options: [
-          { id: '1', label: '7', value: 7, correct: false },
-          { id: '2', label: '8', value: 8, correct: true },
-          { id: '3', label: '9', value: 9, correct: false },
-        ],
-      },
-      {
-        text: 'What is 3 + 3?',
-        options: [
-          { id: '1', label: '5', value: 5, correct: false },
-          { id: '2', label: '6', value: 6, correct: true },
-          { id: '3', label: '7', value: 7, correct: false },
-        ],
-      },
-    ],
-    '7-8': [
-      {
-        text: 'What is 7 + 5?',
-        options: [
-          { id: '1', label: '11', value: 11, correct: false },
-          { id: '2', label: '12', value: 12, correct: true },
-          { id: '3', label: '13', value: 13, correct: false },
-        ],
-      },
-      {
-        text: 'What is 9 - 4?',
-        options: [
-          { id: '1', label: '4', value: 4, correct: false },
-          { id: '2', label: '5', value: 5, correct: true },
-          { id: '3', label: '6', value: 6, correct: false },
-        ],
-      },
-      {
-        text: 'What is 8 + 6?',
-        options: [
-          { id: '1', label: '13', value: 13, correct: false },
-          { id: '2', label: '14', value: 14, correct: true },
-          { id: '3', label: '15', value: 15, correct: false },
-        ],
-      },
-      {
-        text: 'What is 15 - 7?',
-        options: [
-          { id: '1', label: '7', value: 7, correct: false },
-          { id: '2', label: '8', value: 8, correct: true },
-          { id: '3', label: '9', value: 9, correct: false },
-        ],
-      },
-      {
-        text: 'Which is BIGGER: 9 or 6?',
-        options: [
-          { id: '1', label: '6', value: 6, correct: false },
-          { id: '2', label: '9', value: 9, correct: true },
-          { id: '3', label: '3', value: 3, correct: false },
-        ],
-      },
-      {
-        text: 'What is 10 - 3?',
-        options: [
-          { id: '1', label: '6', value: 6, correct: false },
-          { id: '2', label: '7', value: 7, correct: true },
-          { id: '3', label: '8', value: 8, correct: false },
-        ],
-      },
-    ],
-  };
+  const questionOrder = useMemo(
+    () => getSessionQuestionOrder(questions.length, sessionRound),
+    [questions.length, sessionRound]
+  );
+  const q = questions[questionOrder[currentQuestion % questionOrder.length]];
 
-  const [questionOrder] = useState(() => shuffleArray(questions[ageBand].map((_, i) => i)));
-  const q = questions[ageBand][questionOrder[currentQuestion % questionOrder.length]];
+  const spokenText = q.voiceText ?? q.text;
 
   useEffect(() => {
-    return speakQuestion(q.text.replace(/[🍎⭐❤️🐟☀️🐝🎈]/g, ''));
-  }, [currentQuestion, speakQuestion, q.text]);
+    return speakQuestion(spokenText);
+  }, [currentQuestion, speakQuestion, spokenText]);
+
+  // Reset wrong-attempt tracking on each new question
+  useEffect(() => {
+    setWrongAttempts(0);
+    setHintGiven(false);
+  }, [currentQuestion]);
 
   const handleOptionPress = async (option: NumberOption) => {
+    if (selectedId) return;
+    setSelectedId(option.id);
+    setAnswerResult(option.correct ? 'correct' : 'wrong');
+
     if (option.correct) {
-      await handleCorrectAnswer(option.label, onCorrect, () => setCurrentQuestion((p) => p + 1));
+      setWrongAttempts(0);
+      await handleCorrectAnswer(option.label, onCorrect, () => {
+        fadeToNextQuestion(() => {
+          setSelectedId(null);
+          setAnswerResult(null);
+          setCurrentQuestion((p) => p + 1);
+        });
+      });
     } else {
+      const newAttempts = wrongAttempts + 1;
+      setWrongAttempts(newAttempts);
       await handleWrongAnswer(option.label, onWrong);
+
+      if (!hintGiven && newAttempts >= getHintThreshold(difficulty)) {
+        setHintGiven(true);
+        const hint = q.text.includes('+')
+          ? `Try adding the numbers together!`
+          : q.text.includes('-')
+          ? `Try taking the small number away from the big one!`
+          : q.text.includes('×')
+          ? `Try multiplying the numbers!`
+          : q.text.includes('÷')
+          ? `Think about how many times one number fits into the other!`
+          : q.text.includes('BIGGER')
+          ? `Look carefully at both numbers. Which one is more?`
+          : q.text.includes('half') || q.text.includes('third') || q.text.includes('quarter')
+          ? `Try splitting the big number into equal parts!`
+          : q.visual
+          ? `Try counting each one slowly!`
+          : `Take your time and think about it!`;
+        await speakHint(hint);
+      }
+
+      setTimeout(() => {
+        setSelectedId(null);
+        setAnswerResult(null);
+      }, 200);
     }
   };
 
@@ -227,29 +272,36 @@ export const NumbersGame: React.FC<NumbersGameProps> = ({
     >
       <View style={styles.headerSection}>
         <Text style={styles.questionText}>{q.text}</Text>
-        <VoiceButton text={q.text.replace(/[🍎⭐❤️🐟☀️🐝🎈]/g, '')} style={styles.voiceButton} />
+        <VoiceButton text={spokenText} style={styles.voiceButton} />
       </View>
 
-      {q.visual && (
-        <View style={styles.visualSection}>
-          <Text style={styles.visualEmoji}>{q.visual}</Text>
+      <Animated.View style={{ opacity: contentOpacity, width: '100%', alignItems: 'center' }}>
+        {q.visual && (
+          <View style={styles.visualSection}>
+            <Text style={styles.visualEmoji}>{q.visual}</Text>
+          </View>
+        )}
+
+        <View style={styles.optionsContainer}>
+          {q.options.map((option) => (
+            <Animated.View key={option.id} style={{ transform: [{ scale: scaleAnim }] }}>
+              <TouchableOpacity
+                onPress={() => handleOptionPress(option)}
+                style={[
+                  styles.optionButton,
+                  selectedId === option.id && answerResult === 'correct' && styles.correctHighlight,
+                  selectedId === option.id && answerResult === 'wrong' && styles.wrongHighlight,
+                ]}
+                activeOpacity={0.7}
+                disabled={selectedId !== null}
+                accessibilityLabel={`Number ${option.label}`}
+              >
+                <Text style={styles.optionNumber}>{option.label}</Text>
+              </TouchableOpacity>
+            </Animated.View>
+          ))}
         </View>
-      )}
-
-      <View style={styles.optionsContainer}>
-        {q.options.map((option) => (
-          <Animated.View key={option.id} style={{ transform: [{ scale: scaleAnim }] }}>
-            <TouchableOpacity
-              onPress={() => handleOptionPress(option)}
-              style={styles.optionButton}
-              activeOpacity={0.7}
-              accessibilityLabel={`Number ${option.label}`}
-            >
-              <Text style={styles.optionNumber}>{option.label}</Text>
-            </TouchableOpacity>
-          </Animated.View>
-        ))}
-      </View>
+      </Animated.View>
     </View>
   );
 };
@@ -315,6 +367,22 @@ const styles = StyleSheet.create({
     fontSize: 36,
     fontWeight: '900',
     color: '#333',
+  },
+  correctHighlight: {
+    borderColor: '#16A34A',
+    backgroundColor: '#DCFCE7',
+    shadowColor: '#16A34A',
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 10,
+  },
+  wrongHighlight: {
+    borderColor: '#DC2626',
+    backgroundColor: '#FEE2E2',
+    shadowColor: '#DC2626',
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 10,
   },
 });
 

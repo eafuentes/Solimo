@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AgeBand } from '../../types';
 import { VoiceButton } from '../VoiceButton';
-import { shuffleArray } from '../../lib/gameUtils';
+import { getSessionQuestionOrder, seededShuffle } from '../../lib/gameUtils';
 import { useGameFeedback } from '../../hooks/useGameFeedback';
 
 interface SortingItem {
@@ -15,6 +15,7 @@ interface SortingItem {
 interface SortingGameProps {
   ageBand: AgeBand;
   difficulty: 1 | 2 | 3;
+  sessionRound?: number;
   onCorrect: () => void;
   onWrong: () => void;
 }
@@ -32,24 +33,15 @@ interface SortingGameProps {
  * - Emoji visuals make abstract concepts concrete
  * - "Which one belongs?" builds logical reasoning
  */
-export const SortingGame: React.FC<SortingGameProps> = ({
-  ageBand,
-  difficulty,
-  onCorrect,
-  onWrong,
-}) => {
-  const insets = useSafeAreaInsets();
-  const [currentQuestion, setCurrentQuestion] = useState(0);
-  const { scaleAnim, speakQuestion, handleCorrectAnswer, handleWrongAnswer } = useGameFeedback();
-
-  const questions: Record<
-    AgeBand,
-    Array<{
-      text: string;
-      instruction: string;
-      items: Array<SortingItem & { correct: boolean }>;
-    }>
-  > = {
+/** Static question bank — defined at module scope to avoid re-creation on every render */
+const QUESTIONS: Record<
+  AgeBand,
+  Array<{
+    text: string;
+    instruction: string;
+    items: Array<SortingItem & { correct: boolean }>;
+  }>
+> = {
     '3-4': [
       {
         text: 'Which is a FRUIT?',
@@ -103,6 +95,60 @@ export const SortingGame: React.FC<SortingGameProps> = ({
           { id: '1', emoji: '🦁', label: 'lion', correct: false },
           { id: '2', emoji: '🐟', label: 'fish', correct: true },
           { id: '3', emoji: '🐔', label: 'chicken', correct: false },
+        ],
+      },
+      {
+        text: 'Which is a VEHICLE?',
+        instruction: 'Which is a vehicle?',
+        items: [
+          { id: '1', emoji: '🚗', label: 'car', correct: true },
+          { id: '2', emoji: '🌳', label: 'tree', correct: false },
+          { id: '3', emoji: '🐶', label: 'dog', correct: false },
+        ],
+      },
+      {
+        text: 'Which GROWS in a garden?',
+        instruction: 'Which grows in a garden?',
+        items: [
+          { id: '1', emoji: '🌻', label: 'flower', correct: true },
+          { id: '2', emoji: '🚗', label: 'car', correct: false },
+          { id: '3', emoji: '📺', label: 'TV', correct: false },
+        ],
+      },
+      {
+        text: 'Which do you WEAR?',
+        instruction: 'Which do you wear?',
+        items: [
+          { id: '1', emoji: '👟', label: 'shoes', correct: true },
+          { id: '2', emoji: '🍎', label: 'apple', correct: false },
+          { id: '3', emoji: '🐱', label: 'cat', correct: false },
+        ],
+      },
+      {
+        text: 'Which gives us MILK?',
+        instruction: 'Which animal gives us milk?',
+        items: [
+          { id: '1', emoji: '🐄', label: 'cow', correct: true },
+          { id: '2', emoji: '🐦', label: 'bird', correct: false },
+          { id: '3', emoji: '🐍', label: 'snake', correct: false },
+        ],
+      },
+      {
+        text: 'Which is FOOD?',
+        instruction: 'Which is food?',
+        items: [
+          { id: '1', emoji: '🪨', label: 'rock', correct: false },
+          { id: '2', emoji: '🍕', label: 'pizza', correct: true },
+          { id: '3', emoji: '☁️', label: 'cloud', correct: false },
+        ],
+      },
+      {
+        text: 'Which has WHEELS?',
+        instruction: 'Which has wheels?',
+        items: [
+          { id: '1', emoji: '🚲', label: 'bicycle', correct: true },
+          { id: '2', emoji: '🌺', label: 'flower', correct: false },
+          { id: '3', emoji: '📚', label: 'book', correct: false },
         ],
       },
     ],
@@ -159,6 +205,60 @@ export const SortingGame: React.FC<SortingGameProps> = ({
           { id: '1', emoji: '🐘', label: 'elephant', correct: false },
           { id: '2', emoji: '🐻', label: 'bear', correct: false },
           { id: '3', emoji: '🐜', label: 'ant', correct: true },
+        ],
+      },
+      {
+        text: 'Which is SOFT?',
+        instruction: 'Which is soft?',
+        items: [
+          { id: '1', emoji: '🪨', label: 'rock', correct: false },
+          { id: '2', emoji: '🧸', label: 'teddy bear', correct: true },
+          { id: '3', emoji: '🧱', label: 'brick', correct: false },
+        ],
+      },
+      {
+        text: 'Which is HARD?',
+        instruction: 'Which is hard?',
+        items: [
+          { id: '1', emoji: '🪨', label: 'rock', correct: true },
+          { id: '2', emoji: '🧶', label: 'yarn', correct: false },
+          { id: '3', emoji: '☁️', label: 'cloud', correct: false },
+        ],
+      },
+      {
+        text: 'Which is TALL?',
+        instruction: 'Which is tall?',
+        items: [
+          { id: '1', emoji: '🐁', label: 'mouse', correct: false },
+          { id: '2', emoji: '🦒', label: 'giraffe', correct: true },
+          { id: '3', emoji: '🐌', label: 'snail', correct: false },
+        ],
+      },
+      {
+        text: 'Which does NOT belong?',
+        instruction: 'Which does not belong with the vehicles?',
+        items: [
+          { id: '1', emoji: '🚗', label: 'car', correct: false },
+          { id: '2', emoji: '🚌', label: 'bus', correct: false },
+          { id: '3', emoji: '🌻', label: 'flower', correct: true },
+        ],
+      },
+      {
+        text: 'Which is FAST?',
+        instruction: 'Which is fast?',
+        items: [
+          { id: '1', emoji: '🐢', label: 'turtle', correct: false },
+          { id: '2', emoji: '🐇', label: 'rabbit', correct: true },
+          { id: '3', emoji: '🐌', label: 'snail', correct: false },
+        ],
+      },
+      {
+        text: 'Which is ROUND?',
+        instruction: 'Which is round?',
+        items: [
+          { id: '1', emoji: '🍎', label: 'apple', correct: true },
+          { id: '2', emoji: '📚', label: 'book', correct: false },
+          { id: '3', emoji: '👟', label: 'shoe', correct: false },
         ],
       },
     ],
@@ -223,21 +323,289 @@ export const SortingGame: React.FC<SortingGameProps> = ({
           { id: '4', emoji: '🐘', label: 'elephant', correct: false },
         ],
       },
+      {
+        text: 'Which is a FRUIT?',
+        instruction: 'Which is a fruit, not a vegetable?',
+        items: [
+          { id: '1', emoji: '🥕', label: 'carrot', correct: false },
+          { id: '2', emoji: '🍓', label: 'strawberry', correct: true },
+          { id: '3', emoji: '🥦', label: 'broccoli', correct: false },
+          { id: '4', emoji: '🥔', label: 'potato', correct: false },
+        ],
+      },
+      {
+        text: 'Which is a MUSICAL instrument?',
+        instruction: 'Which is a musical instrument?',
+        items: [
+          { id: '1', emoji: '🎨', label: 'paint', correct: false },
+          { id: '2', emoji: '🎸', label: 'guitar', correct: true },
+          { id: '3', emoji: '📚', label: 'books', correct: false },
+          { id: '4', emoji: '✂️', label: 'scissors', correct: false },
+        ],
+      },
+      {
+        text: 'Which has FEATHERS?',
+        instruction: 'Which animal has feathers?',
+        items: [
+          { id: '1', emoji: '🐦', label: 'bird', correct: true },
+          { id: '2', emoji: '🐱', label: 'cat', correct: false },
+          { id: '3', emoji: '🐟', label: 'fish', correct: false },
+          { id: '4', emoji: '🐍', label: 'snake', correct: false },
+        ],
+      },
+      {
+        text: 'Which does NOT belong?',
+        instruction: 'Which does not belong with the colors?',
+        items: [
+          { id: '1', emoji: '🔴', label: 'red', correct: false },
+          { id: '2', emoji: '🔵', label: 'blue', correct: false },
+          { id: '3', emoji: '🍕', label: 'pizza', correct: true },
+          { id: '4', emoji: '🟢', label: 'green', correct: false },
+        ],
+      },
+      {
+        text: 'Which is made of METAL?',
+        instruction: 'Which is made of metal?',
+        items: [
+          { id: '1', emoji: '🪨', label: 'rock', correct: false },
+          { id: '2', emoji: '🔑', label: 'key', correct: true },
+          { id: '3', emoji: '🌿', label: 'leaf', correct: false },
+          { id: '4', emoji: '🧴', label: 'sponge', correct: false },
+        ],
+      },
+      {
+        text: 'Which has FINS?',
+        instruction: 'Which has fins?',
+        items: [
+          { id: '1', emoji: '🐟', label: 'fish', correct: true },
+          { id: '2', emoji: '🐦', label: 'bird', correct: false },
+          { id: '3', emoji: '🐶', label: 'dog', correct: false },
+          { id: '4', emoji: '🐱', label: 'cat', correct: false },
+        ],
+      },
+    ],
+    '9-10': [
+      {
+        text: 'Which is a SOLID?',
+        instruction: 'Which is a solid, not a liquid or gas?',
+        items: [
+          { id: '1', emoji: '🪨', label: 'rock', correct: true },
+          { id: '2', emoji: '💧', label: 'water', correct: false },
+          { id: '3', emoji: '💨', label: 'air', correct: false },
+          { id: '4', emoji: '🫧', label: 'steam', correct: false },
+        ],
+      },
+      {
+        text: 'Which is a GAS?',
+        instruction: 'Which is a gas?',
+        items: [
+          { id: '1', emoji: '🧊', label: 'ice', correct: false },
+          { id: '2', emoji: '🪵', label: 'wood', correct: false },
+          { id: '3', emoji: '💨', label: 'oxygen', correct: true },
+          { id: '4', emoji: '🥛', label: 'milk', correct: false },
+        ],
+      },
+      {
+        text: 'Which is a MAMMAL?',
+        instruction: 'Which animal is a mammal?',
+        items: [
+          { id: '1', emoji: '🐬', label: 'dolphin', correct: true },
+          { id: '2', emoji: '🐍', label: 'snake', correct: false },
+          { id: '3', emoji: '🦎', label: 'lizard', correct: false },
+          { id: '4', emoji: '🐸', label: 'frog', correct: false },
+        ],
+      },
+      {
+        text: 'Which is a RENEWABLE energy?',
+        instruction: 'Which is a renewable energy source?',
+        items: [
+          { id: '1', emoji: '☀️', label: 'solar', correct: true },
+          { id: '2', emoji: '⛽', label: 'gasoline', correct: false },
+          { id: '3', emoji: '🏭', label: 'coal', correct: false },
+          { id: '4', emoji: '🛢️', label: 'oil', correct: false },
+        ],
+      },
+      {
+        text: 'Which does NOT belong?',
+        instruction: 'Which does not belong with the planets?',
+        items: [
+          { id: '1', emoji: '🌍', label: 'Earth', correct: false },
+          { id: '2', emoji: '🪐', label: 'Jupiter', correct: false },
+          { id: '3', emoji: '⭐', label: 'Sun', correct: true },
+          { id: '4', emoji: '🔴', label: 'Mars', correct: false },
+        ],
+      },
+      {
+        text: 'Which is an INSECT?',
+        instruction: 'Which is an insect with 6 legs?',
+        items: [
+          { id: '1', emoji: '🕷️', label: 'spider', correct: false },
+          { id: '2', emoji: '🐜', label: 'ant', correct: true },
+          { id: '3', emoji: '🦀', label: 'crab', correct: false },
+          { id: '4', emoji: '🐛', label: 'worm', correct: false },
+        ],
+      },
+      {
+        text: 'Which is part of the DIGESTIVE system?',
+        instruction: 'Which organ is part of the digestive system?',
+        items: [
+          { id: '1', emoji: '🫁', label: 'lungs', correct: false },
+          { id: '2', emoji: '🧠', label: 'brain', correct: false },
+          { id: '3', emoji: '💪', label: 'stomach', correct: true },
+          { id: '4', emoji: '👁️', label: 'eye', correct: false },
+        ],
+      },
+      {
+        text: 'Which is a CONDUCTOR of electricity?',
+        instruction: 'Which material conducts electricity?',
+        items: [
+          { id: '1', emoji: '🪵', label: 'wood', correct: false },
+          { id: '2', emoji: '🧱', label: 'rubber', correct: false },
+          { id: '3', emoji: '⚙️', label: 'copper', correct: true },
+          { id: '4', emoji: '🧶', label: 'plastic', correct: false },
+        ],
+      },
+      {
+        text: 'Which is a LIQUID?',
+        instruction: 'Which is a liquid?',
+        items: [
+          { id: '1', emoji: '🪨', label: 'rock', correct: false },
+          { id: '2', emoji: '🍊', label: 'juice', correct: true },
+          { id: '3', emoji: '🪵', label: 'wood', correct: false },
+          { id: '4', emoji: '🧱', label: 'brick', correct: false },
+        ],
+      },
+      {
+        text: 'Which is a REPTILE?',
+        instruction: 'Which is a reptile?',
+        items: [
+          { id: '1', emoji: '🐺', label: 'wolf', correct: false },
+          { id: '2', emoji: '🦎', label: 'lizard', correct: true },
+          { id: '3', emoji: '🐦', label: 'bird', correct: false },
+          { id: '4', emoji: '🐟', label: 'fish', correct: false },
+        ],
+      },
+      {
+        text: 'Which is NOT a continent?',
+        instruction: 'Which is not a continent?',
+        items: [
+          { id: '1', emoji: '🌍', label: 'Africa', correct: false },
+          { id: '2', emoji: '🇱🇷', label: 'Pacific Ocean', correct: true },
+          { id: '3', emoji: '🌎', label: 'Asia', correct: false },
+          { id: '4', emoji: '🌏', label: 'Europe', correct: false },
+        ],
+      },
+      {
+        text: 'Which is a PRODUCER in a food chain?',
+        instruction: 'Which is a producer, not a consumer?',
+        items: [
+          { id: '1', emoji: '🌱', label: 'plant', correct: true },
+          { id: '2', emoji: '🦁', label: 'lion', correct: false },
+          { id: '3', emoji: '🐇', label: 'rabbit', correct: false },
+          { id: '4', emoji: '🦅', label: 'eagle', correct: false },
+        ],
+      },
+      {
+        text: 'Which has a BACKBONE?',
+        instruction: 'Which is a vertebrate with a backbone?',
+        items: [
+          { id: '1', emoji: '🪱', label: 'worm', correct: false },
+          { id: '2', emoji: '🐶', label: 'dog', correct: true },
+          { id: '3', emoji: '🧪', label: 'jellyfish', correct: false },
+          { id: '4', emoji: '🐜', label: 'ant', correct: false },
+        ],
+      },
+      {
+        text: 'Which is a COMPOUND?',
+        instruction: 'Which is a compound, not an element?',
+        items: [
+          { id: '1', emoji: '💧', label: 'water', correct: true },
+          { id: '2', emoji: '🥇', label: 'gold', correct: false },
+          { id: '3', emoji: '🌬️', label: 'oxygen', correct: false },
+          { id: '4', emoji: '⚡', label: 'iron', correct: false },
+        ],
+      },
+      {
+        text: 'Which is a PRIMARY source?',
+        instruction: 'Which is a primary historical source?',
+        items: [
+          { id: '1', emoji: '📝', label: 'diary', correct: true },
+          { id: '2', emoji: '📚', label: 'textbook', correct: false },
+          { id: '3', emoji: '🎥', label: 'documentary', correct: false },
+          { id: '4', emoji: '📰', label: 'encyclopedia', correct: false },
+        ],
+      },
+      {
+        text: 'Which is an HERBIVORE?',
+        instruction: 'Which animal only eats plants?',
+        items: [
+          { id: '1', emoji: '🦁', label: 'lion', correct: false },
+          { id: '2', emoji: '🐄', label: 'cow', correct: true },
+          { id: '3', emoji: '🐺', label: 'wolf', correct: false },
+          { id: '4', emoji: '🦅', label: 'eagle', correct: false },
+        ],
+      },
     ],
   };
 
-  const [questionOrder] = useState(() => shuffleArray(questions[ageBand].map((_, i) => i)));
-  const q = questions[ageBand][questionOrder[currentQuestion % questionOrder.length]];
+/**
+ * Sorting Game — teaches categorization, grouping, and classification
+ *
+ * Pedagogical approach:
+ * - Classification is a foundational cognitive skill
+ * - Emoji visuals make abstract concepts concrete
+ * - "Which one belongs?" builds logical reasoning
+ */
+export const SortingGame: React.FC<SortingGameProps> = ({
+  ageBand,
+  difficulty,
+  sessionRound = 1,
+  onCorrect,
+  onWrong,
+}) => {
+  const insets = useSafeAreaInsets();
+  const [currentQuestion, setCurrentQuestion] = useState(0);
+  const { scaleAnim, contentOpacity, speakQuestion, handleCorrectAnswer, handleWrongAnswer, fadeToNextQuestion } = useGameFeedback();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [answerResult, setAnswerResult] = useState<'correct' | 'wrong' | null>(null);
+
+  const questionOrder = useMemo(
+    () => getSessionQuestionOrder(QUESTIONS[ageBand].length, sessionRound),
+    [ageBand, sessionRound]
+  );
+  const qBase = QUESTIONS[ageBand][questionOrder[currentQuestion % questionOrder.length]];
+  const q = useMemo(() => {
+    const prompts = [qBase.text, `New challenge: ${qBase.text}`, `Let's sort! ${qBase.text}`];
+    return {
+      ...qBase,
+      text: prompts[(sessionRound + currentQuestion) % prompts.length],
+      items: seededShuffle(qBase.items, sessionRound * 1000 + currentQuestion + 37),
+    };
+  }, [qBase, sessionRound, currentQuestion]);
 
   useEffect(() => {
     return speakQuestion(q.instruction);
   }, [currentQuestion, speakQuestion, q.instruction]);
 
   const handleItemPress = async (item: SortingItem & { correct: boolean }) => {
+    if (selectedId) return;
+    setSelectedId(item.id);
+    setAnswerResult(item.correct ? 'correct' : 'wrong');
+
     if (item.correct) {
-      await handleCorrectAnswer(item.label, onCorrect, () => setCurrentQuestion((p) => p + 1));
+      await handleCorrectAnswer(item.label, onCorrect, () => {
+        fadeToNextQuestion(() => {
+          setSelectedId(null);
+          setAnswerResult(null);
+          setCurrentQuestion((p) => p + 1);
+        });
+      });
     } else {
       await handleWrongAnswer(item.label, onWrong);
+      setTimeout(() => {
+        setSelectedId(null);
+        setAnswerResult(null);
+      }, 200);
     }
   };
 
@@ -250,21 +618,28 @@ export const SortingGame: React.FC<SortingGameProps> = ({
         <VoiceButton text={q.instruction} style={styles.voiceButton} />
       </View>
 
-      <View style={styles.itemsContainer}>
-        {q.items.map((item) => (
-          <Animated.View key={item.id} style={{ transform: [{ scale: scaleAnim }] }}>
-            <TouchableOpacity
-              onPress={() => handleItemPress(item)}
-              style={styles.itemButton}
-              activeOpacity={0.7}
-              accessibilityLabel={item.label}
-            >
-              <Text style={styles.itemEmoji}>{item.emoji}</Text>
-              <Text style={styles.itemLabel}>{item.label}</Text>
-            </TouchableOpacity>
-          </Animated.View>
-        ))}
-      </View>
+      <Animated.View style={{ opacity: contentOpacity, width: '100%', alignItems: 'center' }}>
+        <View style={styles.itemsContainer}>
+          {q.items.map((item) => (
+            <Animated.View key={item.id} style={{ transform: [{ scale: scaleAnim }] }}>
+              <TouchableOpacity
+                onPress={() => handleItemPress(item)}
+                style={[
+                  styles.itemButton,
+                  selectedId === item.id && answerResult === 'correct' && styles.correctHighlight,
+                  selectedId === item.id && answerResult === 'wrong' && styles.wrongHighlight,
+                ]}
+                activeOpacity={0.7}
+                disabled={selectedId !== null}
+                accessibilityLabel={item.label}
+              >
+                <Text style={styles.itemEmoji}>{item.emoji}</Text>
+                <Text style={styles.itemLabel}>{item.label}</Text>
+              </TouchableOpacity>
+            </Animated.View>
+          ))}
+        </View>
+      </Animated.View>
     </View>
   );
 };
@@ -321,6 +696,22 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#333',
     textTransform: 'capitalize',
+  },
+  correctHighlight: {
+    borderColor: '#16A34A',
+    backgroundColor: '#DCFCE7',
+    shadowColor: '#16A34A',
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 10,
+  },
+  wrongHighlight: {
+    borderColor: '#DC2626',
+    backgroundColor: '#FEE2E2',
+    shadowColor: '#DC2626',
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 10,
   },
 });
 

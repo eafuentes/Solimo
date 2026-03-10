@@ -10,8 +10,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as Icons from '../src/components/icons';
-
-type ActivityId = 'colors' | 'shapes' | 'numbers' | 'patterns' | 'memory' | 'sorting' | 'logic';
+import { ActivityId } from '../src/types';
 
 /** Activity definitions with age-appropriate descriptions */
 const activities: Array<{
@@ -21,6 +20,7 @@ const activities: Array<{
   description: string;
   emoji: string;
   color: string;
+  bgColor: string;
 }> = [
   {
     id: 'colors',
@@ -29,6 +29,7 @@ const activities: Array<{
     description: 'Learn colors',
     emoji: '🎨',
     color: '#FF6B6B',
+    bgColor: '#FFF0F0',
   },
   {
     id: 'shapes',
@@ -37,6 +38,7 @@ const activities: Array<{
     description: 'Find shapes',
     emoji: '▲',
     color: '#4D96FF',
+    bgColor: '#EFF6FF',
   },
   {
     id: 'numbers',
@@ -45,6 +47,7 @@ const activities: Array<{
     description: 'Count & add',
     emoji: '🔢',
     color: '#FFD93D',
+    bgColor: '#FFFBEB',
   },
   {
     id: 'patterns',
@@ -53,6 +56,7 @@ const activities: Array<{
     description: 'Spot patterns',
     emoji: '🧩',
     color: '#9B59B6',
+    bgColor: '#F5F0FF',
   },
   {
     id: 'memory',
@@ -61,6 +65,7 @@ const activities: Array<{
     description: 'Match pairs',
     emoji: '🧠',
     color: '#A8E6CF',
+    bgColor: '#F0FFF4',
   },
   {
     id: 'sorting',
@@ -69,6 +74,7 @@ const activities: Array<{
     description: 'Sort items',
     emoji: '📦',
     color: '#FF8C42',
+    bgColor: '#FFF5EB',
   },
   {
     id: 'logic',
@@ -77,6 +83,7 @@ const activities: Array<{
     description: 'Solve puzzles',
     emoji: '💡',
     color: '#5FD3B0',
+    bgColor: '#EFFFF8',
   },
 ];
 
@@ -125,7 +132,11 @@ export default function PlaygroundScreen() {
                 }
                 style={[
                   styles.activityCard,
-                  { borderBottomColor: activity.color, borderBottomWidth: 4 },
+                  {
+                    borderBottomColor: activity.color,
+                    borderBottomWidth: 4,
+                    backgroundColor: activity.bgColor,
+                  },
                 ]}
                 activeOpacity={0.7}
               >

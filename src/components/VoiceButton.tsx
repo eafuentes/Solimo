@@ -68,24 +68,7 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
     }
   };
 
-  const styles = StyleSheet.create({
-    button: {
-      paddingVertical: 12,
-      paddingHorizontal: 16,
-      backgroundColor: '#FF6B6B',
-      borderRadius: 12,
-      alignItems: 'center',
-      justifyContent: 'center',
-      shadowColor: '#FF6B6B',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.3,
-      shadowRadius: 8,
-      elevation: 4,
-    },
-    text: {
-      fontSize: 24,
-    },
-  });
+  const styles = voiceButtonStyles;
 
   return (
     <TouchableOpacity onPress={handleSpeak} style={[styles.button, style]} activeOpacity={0.7}>
@@ -93,5 +76,24 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
     </TouchableOpacity>
   );
 };
+
+const voiceButtonStyles = StyleSheet.create({
+  button: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: '#FF6B6B',
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#FF6B6B',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  text: {
+    fontSize: 24,
+  },
+});
 
 export default VoiceButton;

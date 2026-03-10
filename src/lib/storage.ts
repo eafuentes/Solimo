@@ -9,7 +9,24 @@ const KEYS = {
   STREAK_COUNT: 'solimo_streakCount',
   STREAK_LAST_DATE: 'solimo_streakLastDate',
   ONBOARDING_DONE: 'solimo_onboardingDone',
+  SESSION_COUNTERS: 'solimo_sessionCounters',
+  BEST_RESULTS: 'solimo_bestResults',
 };
+
+export interface LocalBestResult {
+  bestAccuracy: number;
+  fastestTimeSec: number | null;
+  plays: number;
+  lastPlayedAt: string;
+}
+
+function getSessionKey(activityId: string, ageBand: AgeBand): string {
+  return `${activityId}:${ageBand}`;
+}
+
+function getResultKey(activityId: string, ageBand: AgeBand): string {
+  return `${activityId}:${ageBand}`;
+}
 
 /**
  * Get saved age band (default: '3-4')
@@ -133,9 +150,7 @@ export async function getStreak(): Promise<number> {
   if (!countStr || !lastDate) return 0;
 
   const today = getLocalDateString();
-  const yesterday = getLocalDateString(
-    new Date(Date.now() - 24 * 60 * 60 * 1000)
-  );
+  const yesterday = getLocalDateString(new Date(Date.now() - 24 * 60 * 60 * 1000));
 
   // If last streak date is today, streak is still active
   if (lastDate === today) return parseInt(countStr, 10);
@@ -156,9 +171,7 @@ export async function incrementStreak(): Promise<number> {
   ]);
 
   const today = getLocalDateString();
-  const yesterday = getLocalDateString(
-    new Date(Date.now() - 24 * 60 * 60 * 1000)
-  );
+  const yesterday = getLocalDateString(new Date(Date.now() - 24 * 60 * 60 * 1000));
 
   // Already incremented today — no double counting
   if (lastDate === today) return parseInt(countStr || '1', 10);
@@ -166,7 +179,7 @@ export async function incrementStreak(): Promise<number> {
   let newCount: number;
   if (lastDate === yesterday) {
     // Consecutive day — extend streak
-    newCount = (parseInt(countStr || '0', 10)) + 1;
+    newCount = parseInt(countStr || '0', 10) + 1;
   } else {
     // Streak broken or first day ever — start fresh
     newCount = 1;
@@ -192,4 +205,66 @@ export async function isOnboardingDone(): Promise<boolean> {
  */
 export async function setOnboardingDone(): Promise<void> {
   await AsyncStorage.setItem(KEYS.ONBOARDING_DONE, 'true');
+}
+
+/**
+ * Increment and return local session round for activity+age band.
+ * Used to vary prompts/themes across repeated play sessions.
+ */
+export async function getNextSessionRound(activityId: string, ageBand: AgeBand): Promise<number> {
+  const key = getSessionKey(activityId, ageBand);
+  const data = await AsyncStorage.getItem(KEYS.SESSION_COUNTERS);
+  const counters = data ? JSON.parse(data) : {};
+  const nextRound = (Number(counters[key]) || 0) + 1;
+  counters[key] = nextRound;
+  await AsyncStorage.setItem(KEYS.SESSION_COUNTERS, JSON.stringify(counters));
+  return nextRound;
+}
+
+/**
+ * Get best local result for activity+age band.
+ */
+export async function getLocalBestResult(
+  activityId: string,
+  ageBand: AgeBand
+): Promise<LocalBestResult | null> {
+  const key = getResultKey(activityId, ageBand);
+  const data = await AsyncStorage.getItem(KEYS.BEST_RESULTS);
+  const results = data ? JSON.parse(data) : {};
+  return (results[key] as LocalBestResult) || null;
+}
+
+/**
+ * Save local result and update best values for activity+age band.
+ */
+export async function saveLocalGameResult(
+  activityId: string,
+  ageBand: AgeBand,
+  accuracy: number,
+  elapsedSec: number | null
+): Promise<LocalBestResult> {
+  const key = getResultKey(activityId, ageBand);
+  const data = await AsyncStorage.getItem(KEYS.BEST_RESULTS);
+  const results = data ? JSON.parse(data) : {};
+
+  const previous = (results[key] as LocalBestResult | undefined) || null;
+  const bestAccuracy = previous ? Math.max(previous.bestAccuracy, accuracy) : accuracy;
+
+  const fastestTimeSec =
+    elapsedSec === null
+      ? (previous?.fastestTimeSec ?? null)
+      : previous?.fastestTimeSec === null || previous?.fastestTimeSec === undefined
+        ? elapsedSec
+        : Math.min(previous.fastestTimeSec, elapsedSec);
+
+  const updated: LocalBestResult = {
+    bestAccuracy,
+    fastestTimeSec,
+    plays: (previous?.plays || 0) + 1,
+    lastPlayedAt: new Date().toISOString(),
+  };
+
+  results[key] = updated;
+  await AsyncStorage.setItem(KEYS.BEST_RESULTS, JSON.stringify(results));
+  return updated;
 }
