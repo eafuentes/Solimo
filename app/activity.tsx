@@ -7,6 +7,7 @@ import {
   Animated,
   ActivityIndicator,
   Platform,
+  ScrollView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -284,10 +285,18 @@ export default function ActivityScreen() {
     const remaining = Math.max(0, timerSeconds - elapsedSeconds);
 
     return (
+      <ScrollView
+        style={[styles.completionScroll, { backgroundColor: '#F0FDF4' }]}
+        contentContainerStyle={[
+          styles.completionScrollContent,
+          { paddingTop: insets.top + 32, paddingBottom: insets.bottom + 24 },
+        ]}
+        bounces={false}
+        showsVerticalScrollIndicator={false}
+      >
       <Animated.View
         style={[
           styles.completionContainer,
-          { paddingTop: insets.top + 32 },
           { transform: [{ scale: scaleAnim }], opacity: fadeAnim },
         ]}
       >
@@ -375,6 +384,7 @@ export default function ActivityScreen() {
           <Text style={styles.playAgainButtonText}>🔄 Play Again</Text>
         </TouchableOpacity>
       </Animated.View>
+      </ScrollView>
     );
   }
 
@@ -516,12 +526,19 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#1a1a1a',
   },
-  completionContainer: {
+  completionScroll: {
     flex: 1,
-    backgroundColor: '#F0FDF4',
+  },
+  completionScrollContent: {
+    flexGrow: 1,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 24,
+  },
+  completionContainer: {
+    alignItems: 'center',
+    width: '100%',
+    maxWidth: 500,
   },
   confettiRow: {
     flexDirection: 'row',

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { GameScrollContainer } from '../GameScrollContainer';
 import { AgeBand } from '../../types';
 import { VoiceButton } from '../VoiceButton';
 import { createSeededRng, getSessionQuestionOrder, seededInt, seededShuffle } from '../../lib/gameUtils';
@@ -193,7 +193,6 @@ export const NumbersGame: React.FC<NumbersGameProps> = ({
   onCorrect,
   onWrong,
 }) => {
-  const insets = useSafeAreaInsets();
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const { scaleAnim, contentOpacity, speakQuestion, handleCorrectAnswer, handleWrongAnswer, fadeToNextQuestion, speakHint } = useGameFeedback();
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -267,9 +266,7 @@ export const NumbersGame: React.FC<NumbersGameProps> = ({
   };
 
   return (
-    <View
-      style={[styles.container, { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 16 }]}
-    >
+    <GameScrollContainer backgroundColor="#FFFDE7">
       <View style={styles.headerSection}>
         <Text style={styles.questionText}>{q.text}</Text>
         <VoiceButton text={spokenText} style={styles.voiceButton} />
@@ -302,18 +299,11 @@ export const NumbersGame: React.FC<NumbersGameProps> = ({
           ))}
         </View>
       </Animated.View>
-    </View>
+    </GameScrollContainer>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FFFDE7',
-    paddingHorizontal: 24,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   headerSection: {
     flexDirection: 'row',
     alignItems: 'center',

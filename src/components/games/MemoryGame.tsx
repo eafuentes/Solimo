@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { GameScrollContainer } from '../GameScrollContainer';
 import { AgeBand } from '../../types';
 import { VoiceButton } from '../VoiceButton';
 import { shuffleArray } from '../../lib/gameUtils';
@@ -93,7 +93,6 @@ export const MemoryGame: React.FC<MemoryGameProps> = ({
   onCorrect,
   onWrong,
 }) => {
-  const insets = useSafeAreaInsets();
   const { speak, speakQuestion, handleGenericCorrect, handleGenericWrong } = useGameFeedback();
 
   const [cards, setCards] = useState<MemoryCard[]>([]);
@@ -240,9 +239,7 @@ export const MemoryGame: React.FC<MemoryGameProps> = ({
   const numColumns = cards.length <= 6 ? 3 : cards.length <= 8 ? 4 : cards.length <= 10 ? 5 : 4;
 
   return (
-    <View
-      style={[styles.container, { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 16 }]}
-    >
+    <GameScrollContainer backgroundColor="#E8F5E9">
       <View style={styles.headerSection}>
         <Text style={styles.questionText}>🧠 Find the matching pairs!</Text>
         <VoiceButton text="Find the matching pairs!" style={styles.voiceButton} />
@@ -297,18 +294,11 @@ export const MemoryGame: React.FC<MemoryGameProps> = ({
           );
         })}
       </View>
-    </View>
+    </GameScrollContainer>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#E8F5E9',
-    paddingHorizontal: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   headerSection: {
     flexDirection: 'row',
     alignItems: 'center',

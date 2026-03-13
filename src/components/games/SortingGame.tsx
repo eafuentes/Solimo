@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { GameScrollContainer } from '../GameScrollContainer';
 import { AgeBand } from '../../types';
 import { VoiceButton } from '../VoiceButton';
 import { getSessionQuestionOrder, seededShuffle } from '../../lib/gameUtils';
@@ -563,7 +563,6 @@ export const SortingGame: React.FC<SortingGameProps> = ({
   onCorrect,
   onWrong,
 }) => {
-  const insets = useSafeAreaInsets();
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const { scaleAnim, contentOpacity, speakQuestion, handleCorrectAnswer, handleWrongAnswer, fadeToNextQuestion } = useGameFeedback();
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -610,9 +609,7 @@ export const SortingGame: React.FC<SortingGameProps> = ({
   };
 
   return (
-    <View
-      style={[styles.container, { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 16 }]}
-    >
+    <GameScrollContainer backgroundColor="#FFF3E0">
       <View style={styles.headerSection}>
         <Text style={styles.questionText}>{q.text}</Text>
         <VoiceButton text={q.instruction} style={styles.voiceButton} />
@@ -640,18 +637,11 @@ export const SortingGame: React.FC<SortingGameProps> = ({
           ))}
         </View>
       </Animated.View>
-    </View>
+    </GameScrollContainer>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FFF3E0',
-    paddingHorizontal: 24,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   headerSection: {
     flexDirection: 'row',
     alignItems: 'center',
