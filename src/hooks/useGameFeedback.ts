@@ -6,14 +6,14 @@ import { playCorrectSfx, playWrongSfx } from '../lib/sfx';
 
 /**
  * Voice settings tuned for children's engagement
- * - question: Friendly and clear, slower pace for comprehension
+ * - question: Warm, playful, slower pace — sounds like a friendly cartoon character
  * - success: High energy celebration voice
- * - encouragement: Warm, supportive tone for wrong answers
+ * - encouragement: Gentle, supportive tone for wrong answers
  */
 export const VOICE_PRESETS = {
-  question: { pitch: 1.2, rate: 0.92 },
-  success: { pitch: 1.28, rate: 0.98 },
-  encouragement: { pitch: 1.18, rate: 0.92 },
+  question: { pitch: 1.38, rate: 0.82 },
+  success: { pitch: 1.45, rate: 0.88 },
+  encouragement: { pitch: 1.35, rate: 0.82 },
 } as const;
 
 /** Positive reinforcement messages - varied to keep kids engaged */

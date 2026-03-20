@@ -85,6 +85,15 @@ const activities: Array<{
     color: '#5FD3B0',
     bgColor: '#EFFFF8',
   },
+  {
+    id: 'writing',
+    name: 'Writing',
+    icon: Icons.WritingIcon,
+    description: 'Trace & write',
+    emoji: '✏️',
+    color: '#E84393',
+    bgColor: '#FFF0F7',
+  },
 ];
 
 /**

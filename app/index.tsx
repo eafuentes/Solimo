@@ -46,6 +46,7 @@ function getActivityHint(id: string): string {
     memory: 'Match pairs and train your brain! 🧠',
     sorting: 'Group things that belong together! 📦',
     logic: 'Think and solve fun puzzles! 💡',
+    writing: 'Trace letters and numbers with your finger! ✏️',
   };
   return hints[id] || 'Short, fun, and easy to finish!';
 }
@@ -185,6 +186,7 @@ export default function HomeScreen() {
     memory: Icons.MemoryIcon,
     sorting: Icons.SortingIcon,
     logic: Icons.LogicIcon,
+    writing: Icons.WritingIcon,
   };
 
   const IconComponent = iconMap[activityId];
@@ -558,7 +560,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   ageModalOverlay: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',

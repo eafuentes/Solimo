@@ -5,7 +5,8 @@ export type ActivityId =
   | 'patterns'
   | 'memory'
   | 'sorting'
-  | 'logic';
+  | 'logic'
+  | 'writing';
 
 export type Difficulty = 1 | 2 | 3;
 export type AgeBand = '3-4' | '5-6' | '7-8' | '9-10';

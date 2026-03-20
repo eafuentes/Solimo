@@ -35,6 +35,7 @@ import { PatternsGame } from '../src/components/games/PatternsGame';
 import { MemoryGame } from '../src/components/games/MemoryGame';
 import { SortingGame } from '../src/components/games/SortingGame';
 import { LogicGame } from '../src/components/games/LogicGame';
+import { WritingGame } from '../src/components/games/WritingGame';
 
 /**
  * How many correct answers a game+age-band session requires.
@@ -123,7 +124,8 @@ export default function ActivityScreen() {
     load();
   }, [activityId]);
 
-  const isTimedMode = ageBand === '7-8' || ageBand === '9-10';
+  // Writing should never be timed — it contradicts fine motor development
+  const isTimedMode = activityId !== 'writing' && (ageBand === '7-8' || ageBand === '9-10');
   const timerSeconds = ageBand === '9-10' ? TIMER_SECONDS_9_10 : TIMER_SECONDS_7_8;
   const requiredCorrect = getRequiredCorrect(activityId ?? '', ageBand);
 
@@ -408,6 +410,7 @@ export default function ActivityScreen() {
     memory: MemoryGame,
     sorting: SortingGame,
     logic: LogicGame,
+    writing: WritingGame,
   }[activityId as string];
 
   if (!GameComponent) {
