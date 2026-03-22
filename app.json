@@ -16,7 +16,7 @@
     "ios": {
       "bundleIdentifier": "com.solimo.app",
       "teamId": "473PWD3Y94",
-      "buildNumber": "6",
+      "buildNumber": "7",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -27,7 +27,7 @@
         "backgroundColor": "#FFF9E6"
       },
       "package": "com.solimo.app",
-      "versionCode": 6,
+      "versionCode": 7,
       "permissions": ["android.permission.RECORD_AUDIO", "android.permission.MODIFY_AUDIO_SETTINGS"]
     },
     "scheme": "solimo",

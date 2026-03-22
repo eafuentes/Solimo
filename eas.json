@@ -7,13 +7,15 @@
     "preview": {
       "distribution": "internal"
     },
-    "production": {}
+    "production": {
+      "autoIncrement": true
+    }
   },
   "submit": {
     "production": {
       "ios": {
         "appleId": "elyfuentes.cs@gmail.com",
-        "ascAppId": "6744117785",
+        "ascAppId": "6758738965",
         "appleTeamId": "473PWD3Y94"
       }
     }
