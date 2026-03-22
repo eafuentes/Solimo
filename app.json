@@ -16,7 +16,7 @@
     "ios": {
       "bundleIdentifier": "com.solimo.app",
       "teamId": "473PWD3Y94",
-      "buildNumber": "7",
+      "buildNumber": "8",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
